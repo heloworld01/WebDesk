@@ -1,0 +1,8 @@
+{
+  "pin": "",
+  "port": 8898,
+  "monitor": "primary",
+  "fps": 30,
+  "quality": 60,
+  "scale": 0.6
+}

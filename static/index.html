@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<title>WebDesk</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/kb.css">
+</head>
+<body>
+<!-- 屏幕画面：canvas=JPEG 通道，video=WebRTC/H.264 通道 -->
+<canvas id="screen" class="scr"></canvas>
+<video id="screen-video" class="scr" playsinline muted></video>
+<audio id="remote-audio" autoplay playsinline></audio>
+<div id="status">连接中…</div>
+
+<!-- 自定义控件层（摇杆/按钮） -->
+<div id="controls"></div>
+
+<!-- 左上角：切到键盘模式（独立按钮，不与右上工具栏混排） -->
+<button id="btn-kbpage" title="切换到键盘触摸板（同页切换，不占画面带宽；桌面浏览器还能直接敲实体键盘）">键盘模式</button>
+
+<!-- 顶部工具栏（闲置自动变淡，防误触） -->
+<div id="toolbar">
+  <button id="btn-input" title="开启后屏蔽一切键鼠注入，只看不碰">防误触:关</button>
+  <button id="btn-audio" title="电脑系统声音：点一下开启（黄色=连接中，蓝色=已开启），再点关闭">音频:关</button>
+  <button id="btn-edit" title="编辑控件">编辑</button>
+  <button id="btn-full" title="全屏">全屏</button>
+</div>
+
+<!-- 画面缩放（控件按钮不随画面缩放） -->
+<div id="zoombar">
+  <button id="zoom-in" title="放大">放大</button>
+  <button id="zoom-out" title="缩小">缩小</button>
+  <button id="zoom-reset" title="还原">还原</button>
+</div>
+
+<!-- 编辑模式工具栏 -->
+<div id="editbar" class="hidden">
+  <button id="add-btn">＋按钮</button>
+  <button id="add-stick">＋摇杆</button>
+  <button id="done-edit">完成</button>
+</div>
+
+<!-- 控件属性编辑弹窗 -->
+<div id="prop-dialog" class="hidden">
+  <div id="prop-box">
+    <h3>控件属性</h3>
+    <div id="prop-fields"></div>
+    <div class="prop-actions">
+      <button id="prop-del" class="danger">删除</button>
+      <span></span>
+      <button id="prop-cancel">取消</button>
+      <button id="prop-ok" class="primary">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 键盘触摸板视图（同页覆盖式切换，不新开标页） =================
+     与画面共用同一条 WebSocket：切到键盘时服务端停推画面（mode=none），零视频带宽 -->
+<div id="kbview" class="hidden">
+  <header>
+    <span id="lamp" class="off"></span>
+    <span id="st">连接中…</span>
+    <span id="pos"></span>
+    <a id="go-screen" href="#" role="button">触屏模式</a>
+  </header>
+
+  <div id="tp">
+    <div id="tp-hint">单指拖动移光标 · 轻点=左键 · 长按=右键 · 双指轻点=双击 · 双指拖动=滚轮</div>
+    <canvas id="mm" width="144" height="82"></canvas>
+  </div>
+
+  <div id="mrow">
+    <button data-a="esc">Esc</button>
+    <button data-a="left">左键</button>
+    <button data-a="right">右键</button>
+    <button data-a="dbl">双击</button>
+    <button data-a="wu">滚轮↑</button>
+    <button data-a="wd">滚轮↓</button>
+  </div>
+
+  <div id="kb"></div>
+</div>
+
+<script src="/static/js/net.js"></script>
+<script src="/static/js/widgets.js"></script>
+<script src="/static/js/kb.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

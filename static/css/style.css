@@ -1,0 +1,182 @@
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden; background: #000;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  touch-action: none; user-select: none; -webkit-user-select: none; overscroll-behavior: none;
+}
+
+/* ---------- 画面 ---------- */
+.scr {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  transform-origin: center center;
+  max-width: 100vw; max-height: 100vh; background: #111; object-fit: fill;
+  touch-action: none;
+}
+#screen-video { display: none; }
+#status {
+  position: absolute; left: 50%; top: 8px; transform: translateX(-50%);
+  color: #fff; background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 14px;
+  font-size: 12px; z-index: 60; pointer-events: none; transition: opacity .4s;
+}
+#status.fade { opacity: 0; }
+
+/* ---------- 虚拟光标 ---------- */
+#cursor-dot {
+  position: absolute; z-index: 45; pointer-events: none; display: none;
+  width: 18px; height: 18px; transform: translate(-2px, -2px);
+  border: 2px solid #fff; border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0,0,0,.7), inset 0 0 3px rgba(0,0,0,.4);
+  background: rgba(255, 80, 80, .25);
+}
+
+/* ---------- 顶部工具栏 ---------- */
+#toolbar {
+  position: absolute; right: 8px; top: calc(8px + env(safe-area-inset-top));
+  display: flex; gap: 6px; z-index: 50;
+}
+#toolbar button, #btn-kbpage, #editbar button, .drawer, #keyboard, #prop-box {
+  background: rgba(24, 26, 32, .82); color: #eee; border: 1px solid rgba(255,255,255,.14);
+  border-radius: 10px; backdrop-filter: blur(6px);
+}
+/* 左上角「键盘模式」与右上角工具栏按钮完全同款：直接共用同一条规则 */
+#toolbar button, #btn-kbpage {
+  min-width: 36px; height: 32px; padding: 0 8px; font-size: 14px; border: 1px solid rgba(255,255,255,.14);
+  background: rgba(24,26,32,.72); color: #eee; border-radius: 9px; touch-action: manipulation;
+}
+#toolbar button.on { background: #2f6fed; border-color: #2f6fed; }
+#toolbar button.wait { background: #b07a1e; border-color: #d99a2b; color: #fff; }  /* 音频连接中 */
+#btn-kbpage {
+  position: absolute; left: 40px; top: calc(8px + env(safe-area-inset-top)); z-index: 50;
+}
+#toolbar button.off { background: rgba(120,60,60,.75); border-color: #a55; color: #fdd; }
+/* 闲置变淡防误触；轻触即恢复 */
+#toolbar, #zoombar, #btn-kbpage { transition: opacity .6s; }
+#toolbar.dim, #zoombar.dim, #btn-kbpage.dim { opacity: .28; }
+
+/* ---------- 画面缩放条 ---------- */
+#zoombar {
+  position: absolute; right: 8px; bottom: calc(16px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 8px; z-index: 50;
+}
+#zoombar button {
+  min-width: 44px; height: 40px; padding: 0 6px; font-size: 13px; border-radius: 12px;
+  background: rgba(24,26,32,.72); color: #eee; border: 1px solid rgba(255,255,255,.16);
+  touch-action: manipulation;
+}
+#zoombar button:active { background: #2f6fed; }
+
+/* ---------- 编辑工具栏 ---------- */
+#editbar {
+  position: absolute; left: 50%; top: calc(8px + env(safe-area-inset-top)); transform: translateX(-50%);
+  display: flex; gap: 6px; z-index: 55; padding: 6px; background: rgba(20,22,28,.9);
+  border: 1px solid rgba(255,255,255,.15); border-radius: 12px;
+}
+#editbar button { padding: 8px 14px; font-size: 14px; background: #333a48; }
+#editbar button#done-edit { background: #2f6fed; }
+
+/* ---------- 设置抽屉 ---------- */
+.drawer {
+  position: absolute; right: 8px; top: calc(52px + env(safe-area-inset-top));
+  width: min(320px, calc(100vw - 16px)); padding: 12px 14px; z-index: 56;
+  display: flex; flex-direction: column; gap: 8px; font-size: 13px;
+}
+.drawer h3 { font-size: 13px; color: #9ab; margin-top: 4px; }
+.drawer label { display: flex; align-items: center; gap: 8px; color: #cde; }
+.drawer label input[type=range] { flex: 1; }
+.drawer label span { width: 36px; text-align: right; color: #8fa; }
+.drawer .row { justify-content: flex-start; }
+
+/* ---------- 控件层 ---------- */
+#controls { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+body.editing #controls { pointer-events: auto; }
+#controls:not(.hide-widgets) { }
+#controls.hide-widgets .widget { display: none; }
+
+.widget { position: absolute; pointer-events: auto; transform: translate(-50%, -50%); touch-action: none; }
+.widget.wbtn {
+  min-width: 56px; min-height: 44px; padding: 8px 12px; display: flex; align-items: center; justify-content: center;
+  background: rgba(40, 46, 60, .62); border: 1px solid rgba(255,255,255,.22); border-radius: 12px;
+  color: #fff; font-size: 15px; text-align: center; line-height: 1.15;
+}
+.widget.wbtn.pressed { background: rgba(47,111,237,.85); }
+.widget.wstick { width: 120px; height: 120px; }
+.stick-base {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, rgba(70,80,100,.5), rgba(30,34,44,.55));
+  border: 1px solid rgba(255,255,255,.25);
+}
+.stick-mode {
+  position: absolute; top: -8px; right: -8px; z-index: 2;
+  min-width: 24px; height: 24px; padding: 0 5px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 12, 18, .85); border: 1px solid rgba(255,255,255,.45);
+  color: #fff; font-size: 12px; pointer-events: auto; touch-action: none;
+}
+.stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 40% 35%, #9fb4d8, #5c6f92);
+  border: 1px solid rgba(255,255,255,.5);
+}
+.stick-label { font-size: 12px; color: #101627; font-weight: 600; pointer-events: none; }
+body.editing .widget { outline: 1px dashed #6f6; outline-offset: 3px; }
+/* 防误触开启：
+   - 按钮、鼠标模式摇杆 灰显禁用（避免"看着能按其实无效"的误导）
+   - 方向键模式摇杆 保持可用（方向键是有意的游戏输入，不算误触）
+   - 摇杆角标(切换) 始终可点，方便随时切到方向键；编辑模式不受限 */
+body.input-blocked:not(.editing) .widget.wbtn { opacity: .28; pointer-events: none; }
+body.input-blocked:not(.editing) .widget.wstick.mode-mouse { pointer-events: none; }
+body.input-blocked:not(.editing) .widget.wstick.mode-mouse .stick-base,
+body.input-blocked:not(.editing) .widget.wstick.mode-mouse .stick-knob { opacity: .28; }
+body.input-blocked:not(.editing) .widget.wstick.mode-mouse .stick-mode { pointer-events: auto; }
+
+/* ---------- 键盘面板 ---------- */
+#keyboard {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 70;
+  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 6px;
+}
+#special-keys, #hotkey-row { display: flex; flex-wrap: wrap; gap: 5px; }
+#special-keys button, #hotkey-row button {
+  min-width: 44px; height: 40px; padding: 0 10px; font-size: 14px;
+  background: #39414f; color: #eee; border: 1px solid rgba(255,255,255,.15); border-radius: 8px;
+}
+#special-keys button.hold { background: #2f6fed; }
+#text-input {
+  height: 40px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2);
+  background: #20242d; color: #fff; padding: 0 12px; font-size: 15px;
+}
+#prop-dialog .hidden, .hidden { display: none !important; }
+
+/* ---------- 属性弹窗 ---------- */
+#prop-dialog {
+  position: absolute; inset: 0; z-index: 90; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+}
+#prop-box { width: min(360px, calc(100vw - 24px)); max-height: 80vh; overflow: auto; padding: 14px; }
+#prop-box h3 { color: #cde; font-size: 15px; margin-bottom: 10px; }
+#prop-fields { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #cde; }
+#prop-fields label { display: flex; flex-direction: column; gap: 3px; }
+#prop-fields input, #prop-fields select, #prop-fields textarea {
+  background: #20242d; color: #fff; border: 1px solid rgba(255,255,255,.2);
+  border-radius: 6px; padding: 8px; font-size: 14px; font-family: inherit;
+}
+#prop-fields textarea { min-height: 72px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+/* 点选式动作选择器：鼠标键位 + 单击/按住模式 + 虚拟键盘 */
+.pk-prev { color: #8fa; font-size: 12.5px; min-height: 17px; }
+.pk-row { display: flex; gap: 4px; flex-wrap: wrap; }
+.pk-btn {
+  min-width: 30px; height: 34px; padding: 0 5px; font-size: 12.5px; flex: 0 1 auto;
+  background: #39414f; color: #eee; border: 1px solid rgba(255,255,255,.15); border-radius: 7px;
+  touch-action: manipulation;
+}
+.pk-btn:active { background: #4a5568; }
+.pk-btn.sel { background: #2f6fed; border-color: #6f9bff; }
+.pk-mode { margin-top: 2px; }
+.pk-mode .pk-btn { font-size: 12px; }
+.prop-actions { display: flex; gap: 8px; margin-top: 12px; }
+.prop-actions button { flex: 1; padding: 10px 0; border-radius: 8px; border: none; font-size: 15px; background: #39414f; color: #eee; }
+.prop-actions button.primary { background: #2f6fed; }
+.prop-actions button.danger { background: #b3403a; flex: 0 0 auto; padding: 10px 16px; }
+.prop-actions span { flex: 1; }

@@ -1,0 +1,20 @@
+﻿# ===== WebDesk Win7 专用依赖（目标环境：Windows 7 SP1 x64 + Python 3.8.10 x64）=====
+# 关键上限（已在 PyPI 核实）：
+#   aiortc 1.10+ 要求 Python>=3.9，1.9.0 是最后一个有 cp38 win_amd64 wheel 的版本
+#   mss 钉 9.0.2（10.x 子线程抓屏卡死，见 memory）
+#   pyaudiowpatch 0.2.12.8 是最后一个有 cp38 wheel 的版本
+#   PyInstaller 6.x bootloader 不支持 Win7，钉 5.13.2
+aiortc==1.9.0
+av==12.3.0
+mss==9.0.2
+pyaudiowpatch==0.2.12.8
+pyinstaller==5.13.2
+cryptography==42.0.7
+pyopenssl==25.1.0
+fastapi
+uvicorn[standard]
+pillow
+numpy
+pyautogui
+pydirectinput
+qrcode

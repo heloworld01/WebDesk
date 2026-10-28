@@ -1,0 +1,93 @@
+/* WebDesk 键盘视图（#kbview，主页面内的覆盖层）：与主页面同色系（深蓝黑 + #2f6fed 强调） */
+#kbview {
+  position: fixed; inset: 0; z-index: 900;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: #0b0f1a; color: #e8ecf5;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  overscroll-behavior: none; -webkit-tap-highlight-color: transparent;
+}
+#kbview header, #kbview #tp, #kbview #mrow, #kbview #kb { box-sizing: border-box; }
+
+/* ---------- 顶栏 ---------- */
+#kbview header {
+  display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  background: #101627; border-bottom: 1px solid rgba(255,255,255,.07); flex: none;
+}
+#lamp { width: 10px; height: 10px; border-radius: 50%; background: #8a93a5; }
+#lamp.ok { background: #2eaa5e; box-shadow: 0 0 6px #2eaa5e88; }
+#lamp.bad { background: #e05252; }
+#st { font-size: 13px; color: #aeb8cf; }
+#pos { font-size: 12px; color: #6d7891; margin-left: auto; font-variant-numeric: tabular-nums; }
+#go-screen {
+  color: #9fc0ff; font-size: 13px; text-decoration: none; padding: 4px 10px;
+  border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(47,111,237,.16);
+}
+
+/* ---------- 触摸板 ---------- */
+#tp {
+  position: relative; flex: 1 1 auto; min-height: 26vh; margin: 8px 10px 4px;
+  background: radial-gradient(120% 130% at 50% 0%, #17203a 0%, #10182b 70%);
+  border: 1px solid rgba(255,255,255,.09); border-radius: 14px;
+  touch-action: none; cursor: crosshair;
+}
+#tp.flash { border-color: #2f6fed; }
+#tp-hint {
+  position: absolute; left: 0; right: 0; top: 8px; text-align: center;
+  font-size: 11px; color: #59647e; pointer-events: none; padding: 0 12px;
+}
+#mm {
+  position: absolute; right: 8px; bottom: 8px; border: 1px solid rgba(255,255,255,.16);
+  border-radius: 6px; background: rgba(0,0,0,.35); pointer-events: none;
+}
+#mm .dot { display: none; }
+
+/* ---------- 鼠标快捷行 ---------- */
+#mrow { display: flex; gap: 6px; padding: 4px 10px 6px; flex: none; }
+#mrow button {
+  flex: 1; height: clamp(30px, 4.8vh, 38px); font-size: 13px; color: #dfe6f5; border-radius: 10px;
+  background: rgba(38,48,72,.9); border: 1px solid rgba(255,255,255,.12);
+  touch-action: manipulation;
+}
+#mrow button:active { background: #2f6fed; border-color: #2f6fed; }
+
+/* ---------- 虚拟键盘（键高/间距随视口自适应，横屏矮视口也能完整放下） ---------- */
+#kb {
+  flex: none; padding: 2px 6px calc(env(safe-area-inset-bottom) + 4px);
+  display: flex; flex-direction: column; gap: clamp(3px, .55vh, 5px); background: #0e1424;
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+#kb .krow { display: flex; gap: clamp(3px, .55vh, 5px); }
+#kb button {
+  flex: 1; height: clamp(26px, 5vh, 42px); min-width: 0;
+  font-size: clamp(12px, 1.9vh, 15px); color: #e8ecf5;
+  background: #1a2338; border: 1px solid rgba(255,255,255,.1); border-radius: 8px;
+  touch-action: manipulation; white-space: pre; overflow: hidden;
+}
+#kb button:active { background: #2f6fed; border-color: #2f6fed; }
+#kb button.mod { background: #141c30; color: #9fb4dd; }
+#kb button.mod.active { background: #2f6fed; color: #fff; border-color: #4d86ff; }
+#kb button.wide { color: #bcd0f7; font-size: clamp(11px, 1.6vh, 13px); }
+#kb button.space { flex: 5.8; }
+
+/* ---------- 横屏（手机躺握）：触摸板(左) + 鼠标行/键盘(右) 左右布局，键盘撑满右列 ---------- */
+@media (orientation: landscape) and (max-height: 520px) {
+  #kbview {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  }
+  #kbview header { grid-column: 1 / -1; grid-row: 1; padding-top: 6px; padding-bottom: 4px; }
+  #kbview #tp { grid-column: 1; grid-row: 2 / -1; min-height: 0; margin: 4px 4px 6px 8px; }
+  #kbview #tp-hint { top: 4px; font-size: 10px; }
+  #kbview #mrow { grid-column: 2; grid-row: 2; padding: 4px 8px 0 4px; gap: 5px; }
+  #kbview #kb {
+    grid-column: 2; grid-row: 3;
+    padding: 2px 8px calc(env(safe-area-inset-bottom) + 4px) 4px;
+    border-top: none; gap: 4px;
+  }
+  /* 行高不再固定，改为按右列剩余高度均分，横屏小视口也能放下并看清全部按键 */
+  #kbview #kb .krow { flex: 1 1 0; min-height: 0; gap: 4px; }
+  #kbview #kb button { height: auto; min-height: 0; font-size: 13px; }
+}

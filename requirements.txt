@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+mss==9.0.2
+pillow
+pyautogui
+pydirectinput
+aiortc==1.15.0
+numpy
+pyaudiowpatch ; sys_platform == 'win32'
+qrcode

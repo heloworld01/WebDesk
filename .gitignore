@@ -1,0 +1,18 @@
+# 运行时产物（含验证码/进程状态/日志，不应入库）
+runtime.json
+panel_state.json
+*.log
+
+# 构建产物
+build/
+dist/
+dist-win7/
+__pycache__/
+
+# Win7 离线 wheel 二进制：体积大且可重建，
+# 按 wheels-win7/README-win7.txt 在联网机上 pip download 重建（清单/脚本/校验和入库）
+wheels-win7/*.whl
+
+# 调试杂项
+*.jpg
+.idea/

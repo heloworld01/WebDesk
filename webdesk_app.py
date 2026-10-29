@@ -2,7 +2,7 @@
 
   WebDesk.exe            → 打开控制面板（GUI）
   WebDesk.exe --service  → 仅运行服务（面板以分离进程自举此模式，日志重定向 webdesk.log）
-  WebDesk.exe --minimized → 面板静默启动（隐藏窗口缩到托盘；开机自启用）
+  WebDesk.exe --minimized → 面板静默启动（隐藏窗口缩到托盘；可选高级用法，开机自启已改为展示面板）
 
 开发态仍可直接 python panel.py / python main.py，行为不变。
 """
@@ -23,14 +23,26 @@ def main():
                     encoding="utf-8", errors="replace", buffering=1)  # 行缓冲：逐行落盘
         sys.stdout = sys.stderr = logf
         try:
-            import main
+            import time
+            for _try in range(3):       # onefile 解包与杀软实时扫描有竞态：刚解压的
+                try:                    # pyd/DLL 可能被瞬时锁住 → ImportError。短等重读
+                    import main
+                    break
+                except ImportError:
+                    if _try == 2:
+                        raise
+                    time.sleep(0.6)
             main.main()
         except BaseException:           # windowed exe 无控制台：异常写 crash.log 便于排障
             import traceback
             base = os.path.dirname(os.path.abspath(sys.executable))
             with open(os.path.join(base, "crash.log"), "w", encoding="utf-8") as f:
                 f.write(traceback.format_exc())
-            raise
+            # 绝不 re-raise：windowed 下 bootloader 会把未捕获异常弹成模态
+            # “Fatal Error”对话框砸在用户桌面（2026-10-29 pylibsrtp 偶发
+            # DLL 加载失败实证，关窗时弹出惊扰用户）。无头服务模式不弹窗：
+            # 细节在 crash.log，面板探活发现服务没起来会转灰灯并自动重拉。
+            os._exit(1)
         return
     import panel
     # 面板入口：内含单实例互斥（已有面板在跑如开机自启过则静默退出）、

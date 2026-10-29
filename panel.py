@@ -5,7 +5,7 @@
   - 状态：/health 探活（因此手动 python main.py 起的实例也能识别/接管）
   - 停止：netstat 查端口占用 PID → taskkill
 UI 为 PyQt5（Win7 兼容线钉死 PyQt5==5.15.7 / Qt 5.15.2，勿 pip install -U PyQt5）；
-二维码为可选增强（pip install qrcode）。QSystemTrayIcon 托盘；关窗=缩托盘。
+二维码为可选增强（pip install qrcode）。QSystemTrayIcon 托盘；关窗行为可勾选：缩小进任务栏或直接退出。
 建议用「启动控制面板.bat」或打包 exe 打开（无黑窗）。
 """
 import io
@@ -151,16 +151,16 @@ RUN_NAME = "WebDesk"
 
 
 def autostart_command():
-    """当前形态下应写入 Run 键的命令行：静默进托盘启动。"""
+    """当前形态下应写入 Run 键的命令行：开机自启直接展示面板窗口。"""
     if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --minimized'
+        return f'"{sys.executable}"'
     pyw = sys.executable
     if pyw.lower().endswith("python.exe"):        # 开发态用 pythonw，免黑窗
         cand = os.path.join(os.path.dirname(pyw), "pythonw.exe")
         if os.path.exists(cand):
             pyw = cand
     script = os.path.join(BASE_DIR, "panel.py")
-    return '"%s" "%s" --minimized' % (pyw, script)
+    return '"%s" "%s"' % (pyw, script)
 
 
 def autostart_get():
@@ -323,7 +323,7 @@ def _gray(w):
 
 
 class Panel(QWidget):
-    def __init__(self, minimized=False):
+    def __init__(self):
         super().__init__()
         self._tray = None           # QSystemTrayIcon（None = 托盘不可用，X 退回“退出”语义）
         self._quitting = False
@@ -343,8 +343,12 @@ class Panel(QWidget):
         self.setWindowTitle(t("title"))
         self._build()
         self._refresh_info()
+        # 宽度只认基准宽，不跟 sizeHint 走：带 wordWrap 的灰字提示 sizeHint 仍按
+        # 单行报（Qt 启发式），adjustSize 会把英文窗体撑到 1500+；长提示改为
+        # 折行后按 _base_w 定宽即可（高度仍由 sizeHint/minimumHeight 收放）
         self.setMinimumWidth(self._base_w())
         self.adjustSize()
+        self.resize(self._base_w(), self.height())
         # 高度起步基准=最小高度（与折叠收放同一口径）。show 前布局未激活算不出
         # 可靠 minimumHeight，故挂到事件循环启动后收一次
         QTimer.singleShot(0, self._sync_window_height)
@@ -355,9 +359,9 @@ class Panel(QWidget):
         self._pump.timeout.connect(self._drain_events)
         self._pump.start(200)
         self._start_tray()
-        # 开机自启（--minimized）：不调 show()，托盘照常工作，无闪窗
-        if self.state.get("auto_start", True):
-            QTimer.singleShot(400, self._start_server)
+        # 打开面板即自动拉起服务（固定行为，不再是勾选项）。
+        # 开机自启现在也直接展示面板，走的同一条路径
+        QTimer.singleShot(400, self._start_server)
 
     # ---------- 布局 ----------
     def _build(self):
@@ -366,14 +370,14 @@ class Panel(QWidget):
         # 顶栏：状态灯 + 状态文字 + 启停/重启 + 提示 + 语言切换
         top = QHBoxLayout()
         self.lamp = QLabel("●")
-        f = QFont()
-        f.setPointSize(14)
+        f = QApplication.instance().font()   # 基于全局雅黑派生，别用裸 QFont()（那是 Qt 默认 family）
+        f.setPointSize(16)
         self.lamp.setFont(f)
         self._lamp_color(GRAY)
         top.addWidget(self.lamp)
         self.lbl_status = QLabel(t("status_checking"))
-        f = QFont()
-        f.setPointSize(12)
+        f = QApplication.instance().font()
+        f.setPointSize(14)
         f.setBold(True)
         self.lbl_status.setFont(f)
         top.addWidget(self.lbl_status)
@@ -387,9 +391,6 @@ class Panel(QWidget):
         self.btn_restart.setEnabled(False)      # 停止态重启==启动，交给左侧按钮
         self.btn_restart.clicked.connect(self._restart_clicked)
         top.addWidget(self.btn_restart)
-        top.addSpacing(8)
-        self.lbl_hint = _gray(QLabel(t("hint_restart")))
-        top.addWidget(self.lbl_hint)
         top.addStretch(1)
         # 语言切换：中文/EN 二选一，切换即重刷全部文案（无需重启）
         self.rb_lang = {}
@@ -411,24 +412,23 @@ class Panel(QWidget):
         self.lbl_qr = QLabel(t("qr_off"))
         self.lbl_qr.setStyleSheet("color:%s" % GRAY)
         self.lbl_qr.setAlignment(Qt.AlignCenter)
+        # 注意：绝不能给本 label 开 wordWrap——QLabel 折行模式对 pixmap 走
+        # 空文本的 height-for-width（算出 0），二维码会被布局压成 0 高（隐形）
         row.addWidget(self.lbl_qr, 0, Qt.AlignTop)
         self.right = QWidget()    # _make_qr 按其 sizeHint 高度自适应二维码尺寸
         rv = QVBoxLayout(self.right)
         rv.setContentsMargins(0, 0, 0, 0)
         hrow = QHBoxLayout()
+        # 两条提示是一句话的整体（用户要求）；且必须单行放下——不能开
+        # wordWrap：折行模式 QLabel 会按"平衡宽度"启发式主动折成两行，
+        # 宽度够也折（2026-10-29 用户实证）。文案已精简保证中英都容进右列
         self.lbl_info_hint = _gray(QLabel(t("info_hint")))
-        self.lbl_one_client = _gray(QLabel(t("info_one_client")))
         hrow.addWidget(self.lbl_info_hint)
-        hrow.addWidget(self.lbl_one_client)
         hrow.addStretch(1)
         rv.addLayout(hrow)
         # 灰框高度贴合 4 行地址（不再纵向拉满），只横向吸收剩余宽度
         self.txt_info = QPlainTextEdit()
         self.txt_info.setReadOnly(True)
-        mono = QFont("Consolas")
-        mono.setStyleHint(QFont.Monospace)
-        mono.setPointSize(10)
-        self.txt_info.setFont(mono)
         self.txt_info.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.txt_info.setStyleSheet("background:#f4f6fa;")
         self.txt_info.setFixedHeight(4 * self.txt_info.fontMetrics().lineSpacing() + 14)
@@ -448,6 +448,7 @@ class Panel(QWidget):
         self.chk_pinfixed.setChecked(bool(pin))
         pinrow.addWidget(self.chk_pinfixed)
         self.lbl_pin_hint = _gray(QLabel(t("hint_pin")))
+        # 不加 wordWrap：所在行布局不传 height-for-width，折行会被行高截半
         pinrow.addWidget(self.lbl_pin_hint)
         pinrow.addStretch(1)
         f_link.addLayout(pinrow, 0, 2)
@@ -455,9 +456,9 @@ class Panel(QWidget):
         self.cb_view = QComboBox()
         f_link.addWidget(self.lbl_view, 1, 0)
         f_link.addWidget(self.cb_view, 1, 1)
-        self.chk_autostart = QCheckBox(t("chk_auto_service"))
-        self.chk_autostart.setChecked(bool(self.state.get("auto_start", True)))
-        f_link.addWidget(self.chk_autostart, 1, 2)
+        self.chk_close_tray = QCheckBox(t("chk_close_taskbar"))
+        self.chk_close_tray.setChecked(bool(self.state.get("close_to_tray", True)))
+        f_link.addWidget(self.chk_close_tray, 1, 2)
         self.lbl_port = QLabel(t("lbl_port"))
         self.e_port = QLineEdit(str(self.cfg["port"]))
         self.e_port.setFixedWidth(70)
@@ -521,7 +522,7 @@ class Panel(QWidget):
         g.addWidget(self.lbl_scale, 2, 0)
         g.addWidget(self.sp_scale, 2, 1)
         self.lbl_jpeg_hint = _gray(QLabel(t("hint_jpeg")))
-        g.addWidget(self.lbl_jpeg_hint, 2, 2, 1, 4)
+        g.addWidget(self.lbl_jpeg_hint, 2, 2, 1, 4)   # 同上：单行放下，不折行
         # 提示条：有内容才出现，平时不给区域下方垫出一截空白
         self.lbl_cfgnote = QLabel("")
         g.addWidget(self.lbl_cfgnote, 3, 0, 1, 6)
@@ -538,9 +539,6 @@ class Panel(QWidget):
         root.addWidget(self.btn_logtoggle)
         self.txt_log = QPlainTextEdit()
         self.txt_log.setReadOnly(True)
-        mono9 = QFont(mono)
-        mono9.setPointSize(9)
-        self.txt_log.setFont(mono9)
         self.txt_log.setMaximumBlockCount(600)
         self.txt_log.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.txt_log.setStyleSheet("background:#f4f6fa;")
@@ -558,7 +556,7 @@ class Panel(QWidget):
         self.e_pin.textEdited.connect(self._on_cfg_change)
         self.e_port.textEdited.connect(self._on_cfg_change)
         self.chk_pinfixed.toggled.connect(self._on_fixed_toggled)
-        self.chk_autostart.toggled.connect(self._save_state_now)
+        self.chk_close_tray.toggled.connect(self._save_state_now)
         self.chk_bootlogin.toggled.connect(self._toggle_bootlogin)
         self._load_cfg_into_widgets()
         self.btn_cfgtoggle.setText(self._cfg_btn_text())
@@ -630,8 +628,10 @@ class Panel(QWidget):
 
     @staticmethod
     def _base_w():
-        """内容基准宽：英文串普遍比中文长 30-60%，切语言要整体加宽。"""
-        return 680 if i18n.get_lang() == "zh" else 900
+        """内容基准宽：中英统一 800（用户要求切语言窗口宽度不变）。
+        长灰字提示均 wordWrap（窄了自动折行）；英文态不可折的硬内容
+        （勾选框/输入行/二维码列）靠精简文案容进同宽。"""
+        return 800
 
     # ---------- 语言 ----------
     def _set_lang(self, lang):
@@ -654,16 +654,14 @@ class Panel(QWidget):
             self.lbl_status.setText(self._status_text())
             self.btn_toggle.setText(t("btn_stop") if self._health else t("btn_start"))
             self.btn_restart.setText(t("btn_restart"))
-            self.lbl_hint.setText(t("hint_restart"))
             self.f_info.setTitle(t("info_frame"))
             self.lbl_info_hint.setText(t("info_hint"))
-            self.lbl_one_client.setText(t("info_one_client"))
             self.lbl_pin.setText(t("lbl_pin"))
             self.chk_pinfixed.setText(t("chk_fixed"))
             self.lbl_pin_hint.setText(t("hint_pin"))
             self.lbl_view.setText(t("lbl_default_view"))
             self.lbl_port.setText(t("lbl_port"))
-            self.chk_autostart.setText(t("chk_auto_service"))
+            self.chk_close_tray.setText(t("chk_close_taskbar"))
             self.chk_bootlogin.setText(t("chk_autostart_os"))
             self.btn_cfgtoggle.setText(self._cfg_btn_text())
             self.btn_logtoggle.setText(
@@ -691,10 +689,12 @@ class Panel(QWidget):
                 self._act_show.setText(t("tray_show"))
                 self._act_toggle.setText(t("btn_stop") if self._health else t("btn_start"))
                 self._act_quit.setText(t("tray_quit"))
-            # 英文整体更宽：按新内容重排窗口（顶栏/信息区的静态灰字提示也在其中）
+            # 按新语言重排窗口：宽度直接定到新基准宽（长提示 wordWrap 折行，
+            # 不跟 sizeHint 走——它按单行报，会把英文窗体撑到 1500+）；
+            # 高度取"现高与提示高较大者"，切语言不收用户已经撑开的高度
             self.setMinimumWidth(self._base_w())
             self.adjustSize()
-            self.resize(max(self.width(), self.sizeHint().width()),
+            self.resize(self._base_w(),
                         max(self.height(), self.sizeHint().height()))
         finally:
             self._retranslating = False
@@ -739,6 +739,7 @@ class Panel(QWidget):
         # 自动重连帮不上忙，只能手动反复刷新。就绪后此区域自动替换成二维码。
         if not self._health:
             self.lbl_qr.setPixmap(QPixmap())
+            self.lbl_qr.setMinimumSize(0, 0)   # 解除占位尺寸锁
             self.lbl_qr.setText(t("qr_off"))
             return
         url = self._base_urls()[0]
@@ -757,13 +758,18 @@ class Panel(QWidget):
             img.save(buf, "PNG")                            # PIL → Qt：走 PNG 内存中转
             pm = QPixmap()
             pm.loadFromData(buf.getvalue())
+            # 显式钉住占位尺寸：label 高度若靠隐式 sizeHint 传播，会停在挂图前
+            # 的旧值（实测 214 < pixmap 230），二维码上下被截掉一截
+            self.lbl_qr.setMinimumSize(pm.size())
             self.lbl_qr.setPixmap(pm)
             self.lbl_qr.setText("")
         except ImportError:
             self.lbl_qr.setPixmap(QPixmap())
+            self.lbl_qr.setMinimumSize(0, 0)
             self.lbl_qr.setText(t("qr_need_lib"))
         except Exception as e:
             self.lbl_qr.setPixmap(QPixmap())
+            self.lbl_qr.setMinimumSize(0, 0)
             self.lbl_qr.setText(t("qr_fail", e=e))
 
     def _on_fixed_toggled(self, on):
@@ -833,6 +839,17 @@ class Panel(QWidget):
             if info:
                 self.q.put(("health", info))
                 return                       # 不再发"服务已启动"：绿灯"运行中"已表达，配置区左下角不留冗余提示
+        # 12 秒没起来：多为一次性故障（onefile 解压目录/杀软扫描竞态导致服务
+        # import 即崩、或崩溃残留占用端口）。自动重拉一次再判——新进程是全新
+        # 解包目录，瞬时竞态基本必愈；仍不行才报超时（只重试这一次，不循环）
+        self.q.put(("note", t("note_start_retry")))
+        self.ctrl.start(port)               # alive 则内部直接返回，不会双起
+        for _ in range(40):
+            time.sleep(0.3)
+            info = self.ctrl.health(port)
+            if info:
+                self.q.put(("health", info))
+                return
         self.q.put(("down", None))          # 超时：灯归灰、按钮恢复可点
         self.q.put(("note", (t("note_start_timeout"), True)))
 
@@ -953,8 +970,9 @@ class Panel(QWidget):
             self._note_bad(t("err_boot_reg"))
 
     def _save_state_now(self):
-        """自动启动勾选即时落盘（原为关面板时才存，现在改了立刻生效）。"""
-        self.state["auto_start"] = bool(self.chk_autostart.isChecked())
+        """界面勾选（关窗行为等）即时落盘，不等关面板。"""
+        self.state["close_to_tray"] = bool(self.chk_close_tray.isChecked())
+        self.state.pop("auto_start", None)     # 旧键：自动启动服务已改为固定行为
         save_json(STATE_FILE, self.state)
 
     def _on_cfg_change(self, *_):
@@ -1039,6 +1057,15 @@ class Panel(QWidget):
                     if came_up or code != self._last_code:   # 服务起来/换了随机码 → 重画信息与二维码
                         self._last_code = code
                         self._refresh_info()
+                    if came_up:
+                        # 二维码 pixmap（230~320 高）是就绪后才挂上的，建窗时高度
+                        # 按占位文字算、装不下 → label 被压矮、二维码上下截断。
+                        # 实测挂 pixmap 后 minimumHeight 不涨而 sizeHint().height()
+                        # 会涨，故按 sizeHint 补差；只加不减（用户撑开的高度不动）
+                        self.layout().activate()
+                        need = self.sizeHint().height()
+                        if self.height() < need:
+                            self.resize(self.width(), need)
                 elif kind == "log":
                     self._log(payload)
                 elif kind == "down":
@@ -1057,7 +1084,15 @@ class Panel(QWidget):
 
     # ---------- 托盘 ----------
     def _start_tray(self):
-        """创建托盘图标；不可用时 self._tray=None，X 退回退出语义。"""
+        """创建托盘图标；不可用时 self._tray=None。窗口 hide() 会连带隐藏作为
+        子对象的 QSystemTrayIcon，故已创建时只做补 show()（幂等，可从
+        _show_from_tray/closeEvent 重入）。"""
+        if self._tray is not None:
+            try:
+                self._tray.show()
+            except Exception:
+                pass
+            return
         try:
             if not QSystemTrayIcon.isSystemTrayAvailable():
                 self._tray = None
@@ -1070,7 +1105,11 @@ class Panel(QWidget):
             menu.addSeparator()
             self._act_quit = menu.addAction(t("tray_quit"))
             self._act_quit.triggered.connect(self._quit)
-            self._tray = QSystemTrayIcon(make_tray_icon(GRAY), "WebDesk", self)
+            # 注意：PyQt5 没有 C++ 的 (icon, tip, parent) 三参重载——传三个参数
+            # 直接 TypeError 被 except 吞掉，托盘会静默永不创建（2026-10-29
+            # 实探实证：用户从未见过托盘图标）。tooltip 用 setToolTip 单设。
+            self._tray = QSystemTrayIcon(make_tray_icon(GRAY), self)
+            self._tray.setToolTip("WebDesk")
             self._tray.setContextMenu(menu)
             self._tray.activated.connect(self._on_tray_activated)
             self._tray.show()
@@ -1091,27 +1130,41 @@ class Panel(QWidget):
             except Exception:
                 pass
 
-    def _hide_to_tray(self):
-        self.hide()
-        if self._tray and not self.state.get("tray_hint_shown"):
-            self._tray.showMessage("WebDesk", t("tray_notify"),
-                                   QSystemTrayIcon.Information, 5000)
-            self.state["tray_hint_shown"] = True
-            save_json(STATE_FILE, self.state)
-
     def _show_from_tray(self):
+        self._start_tray()          # hide() 把托盘图标一起藏了，恢复时重新挂上
         self.showNormal()
         self.raise_()
         self.activateWindow()
 
+    def _hide_to_tray(self):
+        """隐藏窗口只留右下角通知区域的小图标（服务继续跑）。Win11 默认把
+        新图标收进溢出区（任务栏 ^ 里），用户容易以为程序关了——所以每次
+        缩入都弹一条气泡指路（2026-10-29 用户实证：一次性提示不足以建立
+        心智，改每次提醒）。托盘实在不可用：退回最小化到任务栏，
+        也不能让用户"找不到窗口"。"""
+        if self._tray is None:
+            self.showMinimized()
+            return
+        self.hide()
+        try:
+            self._tray.showMessage("WebDesk", t("tray_notify"),
+                                   QSystemTrayIcon.Information, 4000)
+        except Exception:
+            pass
+
     # ---------- 关闭 / 退出 ----------
     def closeEvent(self, event):
-        """点 X：缩到托盘，服务继续跑（远程会话不断线）。托盘不可用时退回直接退出。"""
+        """点 X：勾选「关闭面板时缩小进任务栏」（=右下角托盘小图标，用户明确
+        的语义）则隐藏窗口只留托盘图标，服务照跑、远程会话不断线，双击托盘
+        图标恢复（托盘此刻不可用则退化为最小化到任务栏）；未勾选则直接退出
+        （退出路径自带二次确认+停服）。"""
         if self._quitting:
             event.accept()
             return
         event.ignore()
-        if self._tray:
+        if self.chk_close_tray.isChecked():
+            if self._tray is None:
+                self._start_tray()  # 启动时托盘探测失败：点 X 再试一次
             self._hide_to_tray()
         else:
             self._quit()
@@ -1125,7 +1178,8 @@ class Panel(QWidget):
             return
         self._quitting = True
         try:
-            self.state["auto_start"] = bool(self.chk_autostart.isChecked())
+            self.state["close_to_tray"] = bool(self.chk_close_tray.isChecked())
+            self.state.pop("auto_start", None)
             save_json(STATE_FILE, self.state)
             if self._health:
                 # 退出 = 先停服务再走，不留后台（服务与面板共存亡）
@@ -1150,10 +1204,18 @@ def main():
     _single_instance = acquire_single_instance()
     if _single_instance is None:
         return                      # 已有面板在跑：静默退出
-    minimized = "--minimized" in sys.argv
+    minimized = "--minimized" in sys.argv   # 高级用户可选静默模式；开机自启已改为展示面板
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)   # 缩到托盘（窗口隐藏）≠ 退出
-    panel = Panel(minimized=minimized)
+    # 全局字体：微软雅黑 + 字号 +2（Qt 默认约 9pt 偏小、字形发虚）：一次设定，
+    # 所有控件（分组框/按钮/勾选框/菜单/地址框/日志）统一生效。Win7 自带雅黑，
+    # 万一缺失 Qt 自动回退，不影响启动。
+    _f = app.font()
+    _f.setFamily("Microsoft YaHei")
+    if _f.pointSize() > 0:
+        _f.setPointSize(_f.pointSize() + 2)
+    app.setFont(_f)
+    app.setQuitOnLastWindowClosed(False)   # 关窗≠退出：X 走缩托盘/自管退出路径
+    panel = Panel()
     if not minimized:
         panel.show()                # --minimized：不 show，托盘照常工作，无闪窗
     app.exec_()

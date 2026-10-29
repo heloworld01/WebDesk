@@ -344,7 +344,8 @@ async def ws_endpoint(ws: WebSocket):
                     await push_layout()
                 else:
                     print(f"[WebDesk] {ts()} {peer} 验证码错误", flush=True)
-                    await ws.send_json({"t": "err", "msg": "验证码错误"})
+                    # code 供前端翻译；msg 保留中文供旧页面直接展示（二者语义一致）
+                    await ws.send_json({"t": "err", "code": "bad_pin", "msg": "验证码错误"})
                 continue
             if not state["auth"]:
                 continue

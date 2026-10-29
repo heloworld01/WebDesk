@@ -3,20 +3,21 @@
   const LS_LAYOUT = 'wd_layout';
   const LS_SIZE = 'wd_ctlsize';
 
+  // 默认标签取当前语言（仅首次生成默认布局时生效；已保存布局的标签属于用户数据，不随语言变）
   const DEFAULT_LAND = [
     { id: 's1', type: 'stick', kind: 'mouse', x: 0.16, y: 0.68, size: 120, speed: 24,
       keys: { up: 'up', down: 'down', left: 'left', right: 'right' } },
-    { id: 'b1', type: 'button', label: '左键', x: 0.88, y: 0.55, act: { t: 'mouse', btn: 'left' } },
-    { id: 'b2', type: 'button', label: '右键', x: 0.88, y: 0.72, act: { t: 'mouse', btn: 'right' } },
-    { id: 'b3', type: 'button', label: '双击', x: 0.88, y: 0.89, act: { t: 'mouse', btn: 'left', dbl: true } },
+    { id: 'b1', type: 'button', label: t('w_left'), x: 0.88, y: 0.55, act: { t: 'mouse', btn: 'left' } },
+    { id: 'b2', type: 'button', label: t('w_right'), x: 0.88, y: 0.72, act: { t: 'mouse', btn: 'right' } },
+    { id: 'b3', type: 'button', label: t('w_dbl'), x: 0.88, y: 0.89, act: { t: 'mouse', btn: 'left', dbl: true } },
   ];
   // 竖屏：视口窄，x 百分比压缩进右边缘窄带，默认按钮列抬高避开右下角缩放条（放大/缩小/还原）
   const DEFAULT_PORT = [
     { id: 's1', type: 'stick', kind: 'mouse', x: 0.16, y: 0.68, size: 120, speed: 24,
       keys: { up: 'up', down: 'down', left: 'left', right: 'right' } },
-    { id: 'b1', type: 'button', label: '左键', x: 0.88, y: 0.36, act: { t: 'mouse', btn: 'left' } },
-    { id: 'b2', type: 'button', label: '右键', x: 0.88, y: 0.50, act: { t: 'mouse', btn: 'right' } },
-    { id: 'b3', type: 'button', label: '双击', x: 0.88, y: 0.64, act: { t: 'mouse', btn: 'left', dbl: true } },
+    { id: 'b1', type: 'button', label: t('w_left'), x: 0.88, y: 0.36, act: { t: 'mouse', btn: 'left' } },
+    { id: 'b2', type: 'button', label: t('w_right'), x: 0.88, y: 0.50, act: { t: 'mouse', btn: 'right' } },
+    { id: 'b3', type: 'button', label: t('w_dbl'), x: 0.88, y: 0.64, act: { t: 'mouse', btn: 'left', dbl: true } },
   ];
   const DEFAULTS = { landscape: DEFAULT_LAND, portrait: DEFAULT_PORT };
 
@@ -213,7 +214,7 @@
       el.style.top = (w.y * 100) + '%';
       const px = (w.size || 120) * this.sizeScale;
       el.style.width = px + 'px'; el.style.height = px + 'px';
-      const modeText = () => (w.kind === 'keys' ? '方向键' : '鼠标');
+      const modeText = () => (w.kind === 'keys' ? t('stick_keys') : t('stick_mouse'));
       const syncMode = () => {
         el.classList.toggle('mode-keys', w.kind === 'keys');
         el.classList.toggle('mode-mouse', w.kind !== 'keys');
@@ -224,7 +225,7 @@
       // 角标：点按即切换 鼠标/方向键 模式（防误触开启时角标仍可点，方便切到方向键）
       const badge = document.createElement('div');
       badge.className = 'stick-mode';
-      badge.textContent = '切换';
+      badge.textContent = t('stick_switch');
       badge.addEventListener('pointerdown', (e) => {
         e.preventDefault(); e.stopPropagation();
         w.kind = (w.kind === 'keys') ? 'mouse' : 'keys';
@@ -233,7 +234,7 @@
         if (navigator.vibrate) navigator.vibrate(15);
         const blocked = window.Net && window.Net.blocked;
         if (blocked && window.toast)
-          window.toast(w.kind === 'keys' ? '方向键模式不受防误触限制，可用' : '防误触已开：鼠标模式摇杆已禁用');
+          window.toast(w.kind === 'keys' ? t('toast_stick_keys') : t('toast_stick_mouse'));
       });
       el.appendChild(badge);
       if (!this.editing) this._bindStickAction(el, w);
@@ -334,4 +335,7 @@
   };
 
   window.Widgets = Widgets;
+
+  // 切换语言：重绘控件（摇杆模式文字/角标取当前语言；用户自定义按钮标签保持不变）
+  document.addEventListener('wd:lang', () => { if (Widgets.layer) Widgets.render(); });
 })();

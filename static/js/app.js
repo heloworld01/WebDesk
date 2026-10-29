@@ -242,7 +242,7 @@
 
   /* ================= 网络事件 ================= */
   function askCode() {
-    const c = prompt('请输入验证码：\n（本机控制面板上可查看；扫码打开则自动免输）');
+    const c = prompt(t('ask_code'));
     if (c != null && c !== '') { localStorage.setItem('wd_pin', c.trim()); Net.send({ t: 'auth', pin: c.trim() }); }
   }
   function maybeStartRtc() {
@@ -265,9 +265,14 @@
   // 服务端下发的控件布局（自动保存/多设备共享）
   Net.on('layout', (m) => Widgets.applyServerLayout(m.layout));
   // 单连接闸门：已有设备在用 → 提示并慢速等待空位
-  Net.on('busy', () => toast('已有设备正在使用远程桌面，每 5 秒自动重试…', 4200));
+  Net.on('busy', () => toast(t('st_busy'), 4200));
 
   /* ================= WebRTC (H.264) ================= */
+  // /rtc/offer 错误：服务端带 code 的按当前语言翻译；旧服务端只发中文 error 时原样展示
+  const rtcErr = (ans, res) =>
+    (ans.code && (t('srv_' + ans.code) !== 'srv_' + ans.code))
+      ? t('srv_' + ans.code)
+      : (ans.error || ('HTTP ' + res.status));
   function useVideo(on) {
     video.style.display = on ? 'block' : 'none';
     canvas.style.display = on ? 'none' : 'block';
@@ -277,7 +282,7 @@
     video.srcObject = null;
     useVideo(false);
     Net.send({ t: 'stream', mode: 'jpeg' });
-    if (!silent) toast('已切换 JPEG 模式');
+    if (!silent) toast(t('toast_jpeg'));
   }
   let rtcTries = 0;
   async function startWebRTC() {
@@ -294,14 +299,14 @@
         if (gotFrame) return; gotFrame = true;
         useVideo(true); rtcTries = 0;
         Net.send({ t: 'stream', mode: 'webrtc' });
-        toast('WebRTC/H.264 已连接');
+        toast(t('toast_rtc_ok'));
       };
       pc.onconnectionstatechange = () => {
         if (!pc) return;
         if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
           stopWebRTC(true);
           if (enginePref !== 'jpeg' && rtcTries < 2) { rtcTries++; setTimeout(startWebRTC, 1200); }
-          else toast('WebRTC 中断，已回退 JPEG');
+          else toast(t('toast_rtc_lost'));
         }
       };
       const offer = await pc.createOffer();
@@ -311,15 +316,15 @@
         body: JSON.stringify(pc.localDescription),
       });
       const ans = await res.json().catch(() => ({}));
-      if (!res.ok || ans.error) throw new Error(ans.error || ('HTTP ' + res.status));
+      if (!res.ok || ans.error) throw new Error(rtcErr(ans, res));
       await pc.setRemoteDescription(ans);
       // 看门狗：6 秒无画面自动回退
       setTimeout(() => {
-        if (pc && !gotFrame) { stopWebRTC(true); toast('WebRTC 无画面，已回退 JPEG'); }
+        if (pc && !gotFrame) { stopWebRTC(true); toast(t('toast_rtc_noframe')); }
       }, 6000);
     } catch (e) {
       stopWebRTC(true);
-      toast('WebRTC 失败(' + e.message + ')，使用 JPEG');
+      toast(t('toast_rtc_fail', { err: e.message }));
     }
   }
 
@@ -329,11 +334,11 @@
   const audioEl = $('#remote-audio');
   async function startAudio() {
     if (audioPc) return;
-    if (!Net.sid) { toast('验证码尚未验证通过，完成验证后再点开「音频」'); return; }
+    if (!Net.sid) { toast(t('toast_audio_nopin')); return; }
     const btn = $('#btn-audio');
     // 立即反馈：协商（含 ICE 收集）最长约 3 秒，期间按钮呈黄色"连接中"，成功后转蓝
     btn.classList.add('wait');
-    btn.textContent = '音频…';
+    btn.textContent = t('audio_busy');
     let stage = 'create';
     try {
       const apc = new RTCPeerConnection();
@@ -356,19 +361,19 @@
         body: JSON.stringify(apc.localDescription),
       });
       const ans = await res.json().catch(() => ({}));
-      if (!res.ok || ans.error) throw new Error(ans.error || ('HTTP ' + res.status));
-      if (cancelled()) { toast('音频连接已取消，请再点一次「音频」'); return; }
+      if (!res.ok || ans.error) throw new Error(rtcErr(ans, res));
+      if (cancelled()) { toast(t('toast_audio_cancel')); return; }
       stage = 'answer';
       await apc.setRemoteDescription(ans);
       btn.classList.remove('wait');
       btn.classList.add('on');
-      btn.textContent = '音频:开';
-      toast('系统音频已开启');
+      btn.textContent = t('audio_on');
+      toast(t('toast_audio_on'));
     } catch (e) {
       stopAudio();
       const dom = e && e.name === 'InvalidStateError'
-        ? '连接在协商中被中断（' + stage + '），再点一次「音频」试试' : e.message;
-      toast('音频开启失败: ' + dom);
+        ? t('toast_audio_stage', { stage }) : e.message;
+      toast(t('toast_audio_fail', { err: dom }));
     }
   }
   function stopAudio() {
@@ -376,15 +381,15 @@
     if (audioEl) { audioEl.srcObject = null; try { audioEl.pause(); } catch {} }
     const btn = $('#btn-audio');
     btn.classList.remove('on'); btn.classList.remove('wait');
-    btn.textContent = '音频:关';
+    btn.textContent = t('audio_off');
   }
   $('#btn-audio').addEventListener('click', () => {
-    if (audioPc) { stopAudio(); toast('系统音频已关闭'); }
+    if (audioPc) { stopAudio(); toast(t('toast_audio_off')); }
     else startAudio();
   });
 
   Net.on('open', () => {
-    toast('已连接');
+    toast(t('st_connected'));
     if (view === 'kb') Net.send({ t: 'stream', mode: 'none' });   // 重连后保持键盘模式（不拉画面）
   });
   // 虚拟光标（mss 截屏不含系统光标，由服务端回传位置）
@@ -414,18 +419,18 @@
     if (Net.paused) return;
     // 前两次安静重试；之后明示进度并告知可手动刷新（手机切后台/断网后偶尔需要）
     const n = (d && d.retry) || 1;
-    toast(n <= 2 ? '连接断开，自动重连中…'
-                 : `连接断开，已重试 ${n} 次仍失败 — 可下拉/按键刷新本页面重连`, 999999);
+    toast(n <= 2 ? t('st_closed_retry') : t('st_closed_fail', { n }), 999999);
   });
   // 鉴权通过才真正开视频通道（sid 随 ok 到达）
   Net.on('ok', () => {
-    toast('验证成功');
+    toast(t('st_auth_ok'));
     if (view === 'kb') Net.send({ t: 'stream', mode: 'none' }, true);   // 握手期发的 mode 未鉴权会被丢，这里补发
     else maybeStartRtc();
   });
   Net.on('err', (m) => {
-    toast(m.msg);
-    if (String(m.msg || '').match(/验证码|PIN/)) { localStorage.removeItem('wd_pin'); askCode(); }
+    // 服务端带 code 的错误按当前语言翻译；旧服务端只发中文 msg 时原样展示
+    toast(m.code ? t('srv_' + m.code) : m.msg);
+    if (m.code === 'bad_pin' || String(m.msg || '').match(/验证码|PIN/)) { localStorage.removeItem('wd_pin'); askCode(); }
   });
 
   /* ================= 工具栏 ================= */
@@ -433,7 +438,7 @@
   const btnInput = $('#btn-input');
   function refreshInput() {
     btnInput.classList.toggle('off', !S.inputOn);
-    btnInput.textContent = S.inputOn ? '防误触:关' : '防误触:开';
+    btnInput.textContent = S.inputOn ? t('guard_off') : t('guard_on');
     // 防误触开启时控件灰显禁用（编辑模式除外），点击直接穿透到画面平移
     document.body.classList.toggle('input-blocked', !S.inputOn);
   }
@@ -442,7 +447,7 @@
     Net.blocked = !S.inputOn;
     localStorage.setItem('wd_input', S.inputOn ? '1' : '0');
     refreshInput();
-    toast(S.inputOn ? '鼠标控制已开启' : '防误触已开：屏幕点按/鼠标/按钮已屏蔽，摇杆方向键仍可用');
+    toast(S.inputOn ? t('toast_guard_off') : t('toast_guard_on'));
   });
   refreshInput();
 
@@ -462,7 +467,7 @@
       useVideo(false);
       Net.send({ t: 'stream', mode: 'none' });
       Kb.reset(); Kb.setActive(true);
-      document.title = 'WebDesk · 键盘';
+      document.title = t('title_kb');
     } else {
       Kb.setActive(false);
       Net.send({ t: 'stream', mode: 'jpeg' });                   // 先走 JPEG，RTC 就绪后自动升级
@@ -479,9 +484,9 @@
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
       try { await screen.orientation.lock('landscape'); } catch {}
-      toast('已进入全屏（地址栏隐藏）');
+      toast(t('toast_fullscreen'));
     } catch {
-      toast('此浏览器不支持网页全屏。iPhone/iPad：Safari 分享 → “添加到主屏幕”，从主屏幕图标打开即全屏无地址栏');
+      toast(t('toast_fullscreen_no'));
     }
   });
   document.addEventListener('fullscreenchange', () => setTimeout(fitCanvas, 120));
@@ -489,7 +494,7 @@
   /* ---------- 画面缩放按钮 ---------- */
   $('#zoom-in').addEventListener('click', () => setZoom(S.zoom * 1.3));
   $('#zoom-out').addEventListener('click', () => setZoom(S.zoom / 1.3));
-  $('#zoom-reset').addEventListener('click', () => { setZoom(1); toast('画面已还原'); });
+  $('#zoom-reset').addEventListener('click', () => { setZoom(1); toast(t('toast_zoom_reset')); });
 
   /* ---------- 工具栏/缩放条闲置变淡（防误触），轻触任意处恢复 ---------- */
   const dimEls = [$('#toolbar'), $('#zoombar'), $('#btn-kbpage')];
@@ -512,12 +517,12 @@
     $('#editbar').classList.toggle('hidden', !on);
     $('#btn-edit').classList.toggle('on', on);
     $('#controls').classList.toggle('hide-widgets', false);
-    if (on) toast('拖动控件摆放位置，点控件改属性');
+    if (on) toast(t('toast_edit_hint'));
   });
   $('#done-edit').addEventListener('click', () => $('#btn-edit').click());
 
   $('#add-btn').addEventListener('click', () => {
-    const w = Widgets.addWidget({ type: 'button', label: '按键', x: 0.5, y: 0.5, act: { t: 'key', key: 'a' } });
+    const w = Widgets.addWidget({ type: 'button', label: t('wb_key'), x: 0.5, y: 0.5, act: { t: 'key', key: 'a' } });
     EditUI.open(w);
   });
   $('#add-stick').addEventListener('click', () => {
@@ -540,12 +545,12 @@
   ];
   function describeAct(a) {
     switch (a.t) {
-      case 'hold': return '按住 ' + a.key + '（松开时自动抬起）';
-      case 'combo': return '组合键 ' + a.keys.join('+') + '（历史动作，保持不变）';
-      case 'mouse': return '鼠标' + (a.dbl ? '双击' : '点击') + '（' + a.btn + '）';
-      case 'text': return '文本输入（历史动作，保持不变）';
-      case 'macro': return '宏（历史动作，保持不变）';
-      default: return '单击按键 ' + a.key;
+      case 'hold': return t('act_hold', { key: a.key });
+      case 'combo': return t('act_combo', { keys: a.keys.join('+') });
+      case 'mouse': return a.dbl ? t('act_mouse_dbl', { btn: a.btn }) : t('act_mouse_click', { btn: a.btn });
+      case 'text': return t('act_text');
+      case 'macro': return t('act_macro');
+      default: return t('act_key', { key: a.key });
     }
   }
 
@@ -568,23 +573,24 @@
 
       if (w.type === 'stick') {
         const kind = document.createElement('select'); kind.id = 'p-kind';
-        kind.innerHTML = '<option value="mouse">鼠标模式（移动光标）</option><option value="keys">按键模式（如 WASD）</option>';
+        kind.innerHTML = '<option value="mouse">' + t('prop_kind_mouse') + '</option>' +
+                         '<option value="keys">' + t('prop_kind_keys') + '</option>';
         kind.value = w.kind || 'mouse';
-        field('类型', kind);
-        field('摇杆大小(px)', inp('p-size', w.size || 120));
+        field(t('prop_type'), kind);
+        field(t('prop_stick_size'), inp('p-size', w.size || 120));
         const sp = inp('p-speed', w.speed || 14);
-        field('鼠标速度（鼠标模式）', sp);
+        field(t('prop_speed'), sp);
         const keysBox = document.createElement('div');
         keysBox.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap';
         for (const dir of ['up', 'down', 'left', 'right']) {
           const el = inp('p-k-' + dir, (w.keys || {})[dir] || '', dir);
           el.style.width = '70px'; keysBox.appendChild(el);
         }
-        field('按键绑定（按键模式）', keysBox);
+        field(t('prop_keys'), keysBox);
         this._keysBox = keysBox;
       } else {
         // 简化：点选式动作选择器，不输入任何文字。不点选 = 保持原动作不变
-        field('标签', inp('p-label', w.label));
+        field(t('prop_label'), inp('p-label', w.label));
         this.picked = null;
         this._curAct = w.act || { t: 'key', key: 'a' };
         this._mode = (this._curAct.t === 'hold') ? 'hold' : 'key';
@@ -595,7 +601,7 @@
         const upd = () => {
           const a = this.picked || this._curAct;
           const legacy = !this.picked && ['combo', 'text', 'macro'].includes(a.t);
-          prev.textContent = '当前：' + describeAct(a) + (legacy ? '（点选新动作可替换）' : '');
+          prev.textContent = t('prop_cur', { desc: describeAct(a) }) + (legacy ? t('prop_legacy_hint') : '');
           const j = JSON.stringify(this.picked || this._curAct);
           for (const b of f.querySelectorAll('[data-key]'))
             b.classList.toggle('sel', j === b.dataset.key || j === b.dataset.hold);
@@ -617,12 +623,12 @@
 
         // 鼠标键位
         let r = row(f);
-        for (const [n, a] of [['🖱 左键', { t: 'mouse', btn: 'left' }], ['右键', { t: 'mouse', btn: 'right' }], ['双击', { t: 'mouse', btn: 'left', dbl: true }]])
+        for (const [n, a] of [[t('mk_left'), { t: 'mouse', btn: 'left' }], [t('mk_right'), { t: 'mouse', btn: 'right' }], [t('mk_dbl'), { t: 'mouse', btn: 'left', dbl: true }]])
           r.appendChild(btn(n, a));
 
         // 单击 / 按住 模式
         const modeRow = row(f); modeRow.classList.add('pk-mode');
-        for (const [m, name] of [['key', '按下即松'], ['hold', '按住(松手抬起)']]) {
+        for (const [m, name] of [['key', t('mode_tap')], ['hold', t('mode_hold')]]) {
           const b = document.createElement('button');
           b.type = 'button'; b.className = 'pk-btn'; b.textContent = name; b.dataset.mode = m;
           b.addEventListener('click', () => {
@@ -641,7 +647,7 @@
         for (const kbRow of KB_LAYOUT) {
           r = row(f);
           for (const [val, disp] of kbRow)
-            r.appendChild(btn(disp, { t: 'key', key: val }, { t: 'hold', key: val }));
+            r.appendChild(btn(val === 'space' ? t('kb_space_disp') : disp, { t: 'key', key: val }, { t: 'hold', key: val }));
         }
         syncMode(); upd();
       }
@@ -667,7 +673,7 @@
   window.EditUI = EditUI;
 
   $('#prop-ok').addEventListener('click', () => {
-    try { EditUI.collect(); } catch (e) { toast('属性有误: ' + e.message); return; }
+    try { EditUI.collect(); } catch (e) { toast(t('prop_bad', { err: e.message })); return; }
     Widgets.save(); Widgets.render();
     $('#prop-dialog').classList.add('hidden');
   });
@@ -675,6 +681,16 @@
   $('#prop-del').addEventListener('click', () => {
     Widgets.remove(EditUI.cur.id);
     $('#prop-dialog').classList.add('hidden');
+  });
+
+  /* ================= 语言切换重绘（静态文案由 i18n.js 统一替换，这里补动态部分） ==========
+     属性弹窗打开中时不强制重建（会丢失未保存的编辑），下次打开即为新语言 */
+  document.addEventListener('wd:lang', () => {
+    refreshInput();
+    const btn = $('#btn-audio');
+    btn.textContent = btn.classList.contains('wait') ? t('audio_busy')
+                    : btn.classList.contains('on') ? t('audio_on') : t('audio_off');
+    document.title = view === 'kb' ? t('title_kb') : 'WebDesk';
   });
 
   /* ================= 启动 ================= */

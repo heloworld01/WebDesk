@@ -11,27 +11,30 @@
   const tp = $('#tp'), mm = $('#mm'), mctx = mm.getContext('2d');
   let active = false;           // 键盘视图是否正在展示（app.js 经 Kb.setActive 控制）
 
-  function setStatus(ok, text) {
+  // 状态行按 i18n 键驱动：记住最后一次状态，切换语言时（'wd:lang'）原地重绘
+  let lastStatus = { ok: null, key: 'st_connecting', params: null };
+  function setStatus(ok, key, params) {
+    lastStatus = { ok, key, params };
     $('#lamp').className = ok === true ? 'ok' : (ok === false ? 'bad' : '');
-    $('#st').textContent = text;
+    $('#st').textContent = t(key, params);
   }
+  document.addEventListener('wd:lang', () => setStatus(lastStatus.ok, lastStatus.key, lastStatus.params));
 
   /* ================= 连接状态展示 ================= */
-  Net.on('open', () => setStatus(true, '已连接'));
-  Net.on('ok', () => setStatus(true, '已连接'));    // 输码通过：从“请输码”提示恢复（open 早于输码，不会再触发）
-  Net.on('busy', () => setStatus(false, '已有设备在用，每 5 秒重试…'));
+  Net.on('open', () => setStatus(true, 'st_connected'));
+  Net.on('ok', () => setStatus(true, 'st_connected'));    // 输码通过：从“请输码”提示恢复（open 早于输码，不会再触发）
+  Net.on('busy', () => setStatus(false, 'st_busy_kb'));
   Net.on('close', (d) => {
     const n = (d && d.retry) || 1;
-    setStatus(false, n <= 2 ? '已断开，自动重连中…'
-                            : `已断开，已重试 ${n} 次 — 请刷新本页面重连`);
+    setStatus(false, n <= 2 ? 'kb_closed_retry' : 'kb_closed_fail', { n });
   });
   Net.on('hello', (m) => {
     S.w = m.w; S.h = m.h; est = null; drawMM();
     if (m.need_auth && !localStorage.getItem('wd_pin'))
-      setStatus(false, '请在弹出框输入验证码');   // 此刻 app.js 的输码弹框即将弹出
+      setStatus(false, 'st_need_code');   // 此刻 app.js 的输码弹框即将弹出
   });
   Net.on('err', (m) => {
-    if (String(m.msg || '').match(/验证码|PIN/)) setStatus(false, '请在弹出框输入验证码');
+    if (String(m.msg || '').match(/验证码|PIN/)) setStatus(false, 'st_need_code');
   });
 
   /* ================= 光标反馈（小地图 + 坐标） ================= */

@@ -12,22 +12,9 @@ python -c "import PyInstaller" 2>nul || (
 )
 
 echo [2/2] 打包中（约 2~5 分钟，请耐心等待）...
-pyinstaller --noconfirm --clean --onefile --windowed --name WebDesk ^
-  --add-data "static;static" ^
-  --exclude-module matplotlib ^
-  --exclude-module scipy ^
-  --collect-all aiortc ^
-  --collect-all av ^
-  --collect-all pyautogui ^
-  --collect-submodules pydirectinput ^
-  --collect-all pyaudiowpatch ^
-  --hidden-import mss.windows ^
-  --hidden-import uvicorn.logging ^
-  --hidden-import uvicorn.loops.auto ^
-  --hidden-import uvicorn.protocols.http.auto ^
-  --hidden-import uvicorn.protocols.websockets.auto ^
-  --hidden-import uvicorn.lifespan.on ^
-  webdesk_app.py || goto :fail
+REM 直接按 WebDesk.spec 打包：spec 是打包参数的唯一事实来源。
+REM 别改回命令行参数式——那会重新生成并覆盖 spec，丢失精调的 excludes/hiddenimports。
+pyinstaller --noconfirm --clean WebDesk.spec || goto :fail
 
 echo.
 echo ============================================

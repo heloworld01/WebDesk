@@ -8,3 +8,6 @@ aiortc==1.15.0
 numpy
 pyaudiowpatch ; sys_platform == 'win32'
 qrcode
+# Qt 5.15 = 最后支持 Win7 的 Qt；升 -U 会拉到不兼容 Win7 的构建，勿动版本号
+PyQt5==5.15.7 ; sys_platform == 'win32'
+PyQt5-Qt5==5.15.2 ; sys_platform == 'win32'

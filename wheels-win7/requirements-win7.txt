@@ -4,6 +4,8 @@
 #   mss 钉 9.0.2（10.x 子线程抓屏卡死，见 memory）
 #   pyaudiowpatch 0.2.12.8 是最后一个有 cp38 wheel 的版本
 #   PyInstaller 6.x bootloader 不支持 Win7，钉 5.13.2
+#   Qt6/PyQt6/PySide6 仅支持 Win10+；Qt 5.15 是最后支持 Win7 的线 → PyQt5==5.15.7
+#   （PyQt5-Qt5 运行时取实测可用的 5.15.2；sip 12.15.0 为最后有 cp38 wheel 的系列）
 aiortc==1.9.0
 av==12.3.0
 mss==9.0.2
@@ -18,3 +20,6 @@ numpy
 pyautogui
 pydirectinput
 qrcode
+PyQt5==5.15.7
+PyQt5-Qt5==5.15.2
+PyQt5-sip==12.15.0

@@ -150,15 +150,19 @@ class RtcHub:
             if not self.gate.claims(sid):
                 if not sid or self.gate.sid is None:
                     # 页面还没通过验证码，或连接曾断开导致会话已作废
-                    return JSONResponse({"error": "会话未验证或已过期，请先通过验证码后重试"},
+                    # code 供前端翻译；error 保留中文供旧页面直接展示
+                    return JSONResponse({"code": "auth_expired",
+                                         "error": "会话未验证或已过期，请先通过验证码后重试"},
                                         status_code=401)
-                return JSONResponse({"error": "已有其他设备正在连接"}, status_code=403)
+                return JSONResponse({"code": "busy", "error": "已有其他设备正在连接"},
+                                    status_code=403)
         try:
             body = await request.json()
             remote = RTCSessionDescription(sdp=body["sdp"], type=body["type"])
             assert remote.type == "offer"
         except Exception:
-            return JSONResponse({"error": "offer 格式错误"}, status_code=400)
+            return JSONResponse({"code": "bad_offer", "error": "offer 格式错误"},
+                                status_code=400)
 
         import time as _t
         print(f"[WebDesk] {_t.strftime('%H:%M:%S')} /rtc/offer 收到: "
@@ -193,7 +197,8 @@ class RtcHub:
             if not audio.audio_available():
                 await pc.close()
                 self.pcs.discard(pc)
-                return JSONResponse({"error": "未找到系统音频回环设备"}, status_code=400)
+                return JSONResponse({"code": "no_loopback", "error": "未找到系统音频回环设备"},
+                                    status_code=400)
 
         try:
             if want_audio:

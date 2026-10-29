@@ -6,6 +6,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = [('static', 'static')]
 binaries = []
 hiddenimports = ['mss.windows', 'uvicorn.logging', 'uvicorn.loops.auto', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan.on']
+# 托盘已改 QSystemTrayIcon（PyInstaller 自带 PyQt5 hooks，无需额外 hiddenimports）
 hiddenimports += collect_submodules('pydirectinput')
 tmp_ret = collect_all('aiortc')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]

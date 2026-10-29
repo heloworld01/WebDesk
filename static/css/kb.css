@@ -23,6 +23,12 @@
   color: #9fc0ff; font-size: 13px; text-decoration: none; padding: 4px 10px;
   border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(47,111,237,.16);
 }
+/* 语言切换：与「触屏模式」同款的紧凑按钮 */
+#kb-lang {
+  font: inherit; font-size: 13px; color: #9fc0ff; cursor: pointer; touch-action: manipulation;
+  padding: 4px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
+  background: rgba(47,111,237,.16); flex: none;
+}
 
 /* ---------- 触摸板 ---------- */
 #tp {

@@ -2,6 +2,7 @@
 
   WebDesk.exe            → 打开控制面板（GUI）
   WebDesk.exe --service  → 仅运行服务（面板以分离进程自举此模式，日志重定向 webdesk.log）
+  WebDesk.exe --minimized → 面板静默启动（隐藏窗口缩到托盘；开机自启用）
 
 开发态仍可直接 python panel.py / python main.py，行为不变。
 """
@@ -32,11 +33,10 @@ def main():
                 f.write(traceback.format_exc())
             raise
         return
-    import tkinter as tk
     import panel
-    root = tk.Tk()
-    panel.Panel(root)
-    root.mainloop()
+    # 面板入口：内含单实例互斥（已有面板在跑如开机自启过则静默退出）、
+    # QApplication 构建与事件循环
+    panel.main()
 
 
 if __name__ == "__main__":

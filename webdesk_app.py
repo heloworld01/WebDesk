@@ -12,17 +12,16 @@ import sys
 def main():
     if "--service" in sys.argv:
         import os
-        # windowed exe 无控制台时 sys.stdout/stderr 均为 None（PyInstaller 无视句柄
-        # 继承），uvicorn 日志格式化器调 isatty() 会直接崩 → 补一个真实文件流
-        if sys.stdout is None and sys.stderr is None:
-            base = os.path.dirname(os.path.abspath(sys.executable))
-            logf = open(os.path.join(base, "webdesk.log"), "a",
-                        encoding="utf-8", errors="replace", buffering=1)  # 行缓冲：日志逐行落盘
-            sys.stdout = sys.stderr = logf
-        elif sys.stdout is None:
-            sys.stdout = sys.stderr
-        elif sys.stderr is None:
-            sys.stderr = sys.stdout
+        # 服务模式一律自己接管 stdout/stderr：UTF-8 行缓冲追加写 webdesk.log。
+        # 不做条件判断——打包态 bootloader 对 stdout 有三种历史注入形态，都翻过车：
+        #   None（旧判据命中，正常）/ NULL 设备写入器（非 None → 旧判据漏网，
+        #   日志整段丢失，2026-10-29 探针实证）/ 继承句柄的本地编码包装
+        #   （中文系统 GBK → 与面板 UTF-8 混写同一文件，乱码，字节取证 35:99 行）。
+        # 无条件重开三态通杀；"a" 模式各写句柄原子追加，与面板写头行互不踩。
+        base = os.path.dirname(os.path.abspath(sys.executable))
+        logf = open(os.path.join(base, "webdesk.log"), "a",
+                    encoding="utf-8", errors="replace", buffering=1)  # 行缓冲：逐行落盘
+        sys.stdout = sys.stderr = logf
         try:
             import main
             main.main()

@@ -207,8 +207,11 @@ class DesktopAudioTrack(MediaStreamTrack):
         frame.time_base = fractions.Fraction(1, SAMPLE_RATE)
         return frame
 
-    async def stop(self):
-        await super().stop()
+    def stop(self):
+        # aiortc 同步调用 track.stop()（rtcrtpsender.py），基类 stop 也是同步的：
+        # 这里绝不能用 async 覆写——协程不会被 await（RuntimeWarning），
+        # release() 不执行 → 环回采集设备一直占着不释放。与 webrtc.py ScreenTrack 同规。
+        super().stop()
         self.release()
 
 

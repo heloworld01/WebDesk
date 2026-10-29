@@ -23,7 +23,8 @@ from PyQt5.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
                              QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                              QMenu, QMessageBox, QPlainTextEdit, QPushButton,
-                             QRadioButton, QSpinBox, QSystemTrayIcon, QVBoxLayout, QWidget)
+                             QRadioButton, QSizePolicy, QSpinBox, QSystemTrayIcon,
+                             QVBoxLayout, QWidget)
 
 import i18n
 from i18n import t
@@ -56,6 +57,14 @@ DEFAULTS = {"pin": "", "port": 8898, "monitor": "primary", "fps": 30,
 
 GREEN, RED, AMBER, GRAY = "#2eaa5e", "#e05252", "#e0a13a", "#8a93a5"
 GRAY_TXT, BAD_TXT = "#666666", "#c0392b"
+
+# 折叠区头：整行可点的扁平标题条（远程桌面配置 / 服务日志共用）
+_HEADER_QSS = (
+    "QPushButton { text-align:left; color:#3a4252; background:#eef1f6;"
+    " border:1px solid #d8dde6; border-radius:4px; padding:5px 10px;"
+    " font-weight:bold; }"
+    " QPushButton:hover { background:#e2e8f1; }"
+    " QPushButton:pressed { background:#d7dfec; }")
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +345,9 @@ class Panel(QWidget):
         self._refresh_info()
         self.setMinimumWidth(self._base_w())
         self.adjustSize()
+        # 高度起步基准=最小高度（与折叠收放同一口径）。show 前布局未激活算不出
+        # 可靠 minimumHeight，故挂到事件循环启动后收一次
+        QTimer.singleShot(0, self._sync_window_height)
         self._start_tail()          # 尾读 webdesk.log
         threading.Thread(target=self.ctrl.watch,
                          args=(lambda: int(self.cfg["port"]),), daemon=True).start()
@@ -389,8 +401,11 @@ class Panel(QWidget):
             top.addWidget(rb)
         root.addLayout(top)
 
-        # 连接信息：左二维码，右提示+地址+连接相关设置
+        # 连接信息：左二维码，右提示+地址+连接相关设置。
+        # 垂直钉 Fixed：折叠区收起后释放的高度必须还给窗口高度，
+        # 不能被 QBoxLayout 转嫁给本区（Preferred 会吃扩展空间→信息区长高）
         self.f_info = QGroupBox(t("info_frame"))
+        self.f_info.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         vi = QVBoxLayout(self.f_info)
         row = QHBoxLayout()
         self.lbl_qr = QLabel(t("qr_off"))
@@ -459,14 +474,18 @@ class Panel(QWidget):
         root.addWidget(self.f_info)
 
         # 远程桌面配置：折叠窗（与服务日志同款式）。多屏时要在屏间切换、验证选择，
-        # 默认展开；单屏没这些操作，默认折叠省一屏高度
-        cfgbar = QHBoxLayout()
-        self.btn_cfgtoggle = QPushButton()
-        self.btn_cfgtoggle.clicked.connect(self._toggle_cfg)
-        cfgbar.addWidget(self.btn_cfgtoggle)
-        cfgbar.addStretch(1)
-        root.addLayout(cfgbar)
+        # 默认展开；单屏没这些操作，默认折叠省一屏高度。
+        # 注意：不能把 clicked 直接连到带 force 形参的槽——clicked 携带
+        # checked=False，会被当成 force=False，折叠后永远展不开（原 bug）。
+        # 现在用 checkable 按钮：勾选态即开合态（单一事实来源），toggled 驱动。
         self._cfg_open = len(self.monitors) > 1
+        self.f_cfg = QWidget()
+        self.f_cfg.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.btn_cfgtoggle = self._section_header()
+        self.btn_cfgtoggle.setChecked(self._cfg_open)
+        self.btn_cfgtoggle.setText(self._cfg_btn_text())
+        self.btn_cfgtoggle.toggled.connect(self._set_cfg_open)
+        root.addWidget(self.btn_cfgtoggle)
         self.f_cfg = QWidget()
         g = QGridLayout(self.f_cfg)
         self.lbl_mon = QLabel(t("lbl_monitor"))
@@ -512,13 +531,11 @@ class Panel(QWidget):
         root.addWidget(self.f_cfg)
 
         # 服务日志：折叠窗，默认折叠；折叠时后台尾读照常更新，展开即见最新
-        logbar = QHBoxLayout()
-        self.btn_logtoggle = QPushButton("▸ " + t("log_title"))
-        self.btn_logtoggle.clicked.connect(self._toggle_log)
-        logbar.addWidget(self.btn_logtoggle)
-        logbar.addStretch(1)
-        root.addLayout(logbar)
         self._log_open = False
+        self.btn_logtoggle = self._section_header()
+        self.btn_logtoggle.setText("▸ " + t("log_title"))
+        self.btn_logtoggle.toggled.connect(self._set_log_open)
+        root.addWidget(self.btn_logtoggle)
         self.txt_log = QPlainTextEdit()
         self.txt_log.setReadOnly(True)
         mono9 = QFont(mono)
@@ -574,21 +591,42 @@ class Panel(QWidget):
         self.chk_webrtc.setChecked(bool(self.cfg["webrtc"]))
         self._sync_code_display()
 
+    @staticmethod
+    def _section_header():
+        """折叠区头按钮：整行宽、扁平、可点；checkable——勾选态即开合态。"""
+        b = QPushButton()
+        b.setCheckable(True)
+        b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        b.setStyleSheet(_HEADER_QSS)
+        return b
+
     def _cfg_btn_text(self):
         return ("▾ " if self._cfg_open else "▸ ") + t("cfg_title")
 
-    def _toggle_log(self, force=None):
-        self._log_open = (not self._log_open) if force is None else bool(force)
+    # 开/合的唯一入口由按钮 toggled(bool) 驱动；程序侧要展开一律 setChecked(True)
+    # （setChecked 幂等：已展开时不发信号，避免重复滚动/重排）
+    def _set_cfg_open(self, on):
+        self._cfg_open = bool(on)
+        self.btn_cfgtoggle.setText(self._cfg_btn_text())
+        self.f_cfg.setVisible(self._cfg_open)
+        self._sync_window_height()
+
+    def _set_log_open(self, on):
+        self._log_open = bool(on)
         self.btn_logtoggle.setText(("▾ " if self._log_open else "▸ ") + t("log_title"))
         self.txt_log.setVisible(self._log_open)
+        self._sync_window_height()
         if self._log_open:
             self.txt_log.verticalScrollBar().setValue(
                 self.txt_log.verticalScrollBar().maximum())   # 展开即见最新
 
-    def _toggle_cfg(self, force=None):
-        self._cfg_open = (not self._cfg_open) if force is None else bool(force)
-        self.btn_cfgtoggle.setText(self._cfg_btn_text())
-        self.f_cfg.setVisible(self._cfg_open)
+    def _sync_window_height(self):
+        """折叠区开合后把窗口高度收放到位：折叠省出的高度直接还给窗口，
+        展开时最小高度回升即刻补足——不靠 QBoxLayout 隐式再分配，
+        否则释放的空间会被转嫁给纵向 Preferred 的「连接信息」区（原症状）。
+        日志区纵向 Expanding：窗口比最小高度高出的部分全补给日志。"""
+        self.layout().activate()
+        self.resize(self.width(), self.minimumHeight())
 
     @staticmethod
     def _base_w():
@@ -609,6 +647,9 @@ class Panel(QWidget):
         动态串（状态/二维码/验证码占位）按新语言重新生成；瞬态提示条直接清掉。"""
         self._retranslating = True
         try:
+            rb = self.rb_lang.get(i18n.get_lang())
+            if rb and not rb.isChecked():
+                rb.setChecked(True)   # 程序侧切语言时同步单选钮（点击路径已自带选中）
             self.setWindowTitle(t("title"))
             self.lbl_status.setText(self._status_text())
             self.btn_toggle.setText(t("btn_stop") if self._health else t("btn_start"))
@@ -690,7 +731,7 @@ class Panel(QWidget):
         if not self._health:
             return t("st_stopped")
         conn = t("st_connected") if self._health.get("clients", 0) else t("st_disconnected")
-        return t("st_running", conn=conn, port=self.cfg["port"])
+        return t("st_running", conn=conn)
 
     def _make_qr(self):
         # 自检门控：服务未就绪（/health 不通）时不展示可扫二维码。
@@ -861,12 +902,12 @@ class Panel(QWidget):
 
     def _note(self, msg, want_log=False):
         if want_log and not self._log_open:
-            self._toggle_log(True)      # 提示"详见日志"时自动展开，免得用户找不到
+            self.btn_logtoggle.setChecked(True)   # 提示"详见日志"时自动展开，免得用户找不到
         self._show_note(msg, AMBER)
 
     def _note_bad(self, msg):
         if not self._cfg_open:
-            self._toggle_cfg(True)      # 配置窗折叠着时校验失败：展开才看得到红字原因
+            self.btn_cfgtoggle.setChecked(True)   # 配置窗折叠着时校验失败：展开才看得到红字原因
         self._show_note(msg, BAD_TXT)
 
     def _show_note(self, text, color):
@@ -942,24 +983,37 @@ class Panel(QWidget):
     # ---------- 日志尾读 ----------
     def _start_tail(self):
         def tail():
+            # 历史日志混合编码：面板头行 UTF-8，旧版打包服务的中文行 GBK
+            # （webdesk_app 已收口，但存量文件要能读）→ 按行探测：UTF-8 优先，
+            # 解不动再按 GBK(cp936) 解。二进制读 + 尾行 carry，避免多字节被切断。
             offset = 0
             try:
                 size = os.path.getsize(LOG_FILE)
                 offset = max(0, size - 4096)     # 初始只回看 4KB
             except OSError:
                 pass
+            carry = b""
             while True:
                 try:
-                    with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
+                    with open(LOG_FILE, "rb") as f:
+                        if f.seek(0, os.SEEK_END) < offset:
+                            offset = 0           # 日志被清空/轮转：从头再来
                         f.seek(offset)
                         chunk = f.read()
                         offset = f.tell()
-                    if chunk:
-                        for line in chunk.splitlines():
-                            if line.strip():
-                                self.q.put(("log", line))
+                    lines = (carry + chunk).split(b"\n")
+                    carry = lines.pop()          # 无换行的尾片段留到下轮
+                    for ln in lines:
+                        ln = ln.rstrip(b"\r")
+                        if not ln.strip():
+                            continue
+                        try:
+                            text = ln.decode("utf-8")
+                        except UnicodeDecodeError:
+                            text = ln.decode("cp936", "replace")
+                        self.q.put(("log", text))
                 except OSError:
-                    pass
+                    carry = b""
                 time.sleep(1.0)
         threading.Thread(target=tail, daemon=True).start()
 

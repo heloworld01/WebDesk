@@ -277,9 +277,25 @@ class Controller:
         try:
             subprocess.run(["taskkill", "/PID", str(pid), "/F"],
                            capture_output=True, creationflags=HIDE_WIN, timeout=8)
-            return not self.alive(port)
         except Exception:
             return False
+        # 快检端口关闭：connect 被拒是瞬时的；旧版用 health(HTTP, timeout=2)
+        # 确认，进程半死/连接悬挂时白等满 2 秒（退出慢的主凶之一）。
+        # 端口没了=进程没了；最多 1.5s 兜底判失败
+        for _ in range(10):
+            s = socket.socket()
+            s.settimeout(0.15)
+            try:
+                s.connect(("127.0.0.1", port))
+                alive = True
+            except OSError:
+                alive = False
+            finally:
+                s.close()
+            if not alive:
+                return True
+            time.sleep(0.15)
+        return False
 
     @staticmethod
     def health(port):
@@ -1074,6 +1090,8 @@ class Panel(QWidget):
                     if was_up:                   # _make_qr/_info_text 靠它门控，停止时隐藏二维码与地址
                         self._refresh_info()
                     self._set_lamp(GRAY, self._status_text())   # "已停止"
+                elif kind == "quit_now":       # _quit_worker 停服完成 → 真正退出
+                    self._finish_quit()
                 elif kind == "note":
                     if isinstance(payload, tuple):   # (消息, want_log)：提示"详见日志"时自动展开
                         self._note(*payload)
@@ -1171,7 +1189,8 @@ class Panel(QWidget):
 
     def _quit(self):
         # 注意：此路径上任何未捕获异常都会导致进程永远退不掉（托盘退出无反应），
-        # 因此全部包在 try 里，finally 保证应用必退。
+        # 因此全部包在 try 里，必达收尾（服务未跑直接退；在跑则 worker 收尾，
+        # worker 用 try/finally 保证必发 quit_now 事件）。
         if self._quitting:
             return
         if self._health and not self._ask(t("mb_quit_title"), t("mb_quit_body")):
@@ -1181,19 +1200,39 @@ class Panel(QWidget):
             self.state["close_to_tray"] = bool(self.chk_close_tray.isChecked())
             self.state.pop("auto_start", None)
             save_json(STATE_FILE, self.state)
-            if self._health:
-                # 退出 = 先停服务再走，不留后台（服务与面板共存亡）
-                try:
-                    self.ctrl.stop(int(self.cfg["port"]))
-                except Exception:
-                    pass
-            self.ctrl.stop_watch()
+        except Exception:
+            pass
+        if self._health:
+            # 退出 = 先停服务再走，不留后台（服务与面板共存亡）。
+            # 停服要 1 秒上下：放 worker 线程执行，GUI 立刻亮出
+            # 「正在停止服务，即将退出…」并整窗禁用（原同步等待会冻窗
+            # 3~5 秒，用户以为没点上又点一下）。收尾由泵收 quit_now 驱动
+            self._set_lamp(GRAY, t("note_quitting"))
+            self.setEnabled(False)
+            QApplication.processEvents()        # 让提示真正画出来再进等待
+            threading.Thread(target=self._quit_worker, daemon=True).start()
+            # 保险：netstat/taskkill 各自有超时，极端叠加工况下也绝不把
+            # 用户卡在"禁用等待"里——10 秒必退（重复 quit() 无害）
+            QTimer.singleShot(10000, self._finish_quit)
+            return
+        self._finish_quit()
+
+    def _quit_worker(self):
+        try:
+            self.ctrl.stop(int(self.cfg["port"]))
         except Exception:
             pass
         finally:
-            if self._tray:
-                self._tray.hide()
-            QApplication.instance().quit()
+            self.q.put(("quit_now", None))
+
+    def _finish_quit(self):
+        try:
+            self.ctrl.stop_watch()
+        except Exception:
+            pass
+        if self._tray:
+            self._tray.hide()
+        QApplication.instance().quit()
 
 
 _single_instance = None     # 互斥体句柄：持有到进程退出，勿回收

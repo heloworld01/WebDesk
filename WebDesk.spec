@@ -34,7 +34,9 @@ a = Analysis(
               'pygments', 'prompt_toolkit', 'jedi', 'parso', 'rich',
               '_pytest', 'pytest', 'setuptools', 'distutils', 'trio', 'pydoc_data'],
     noarchive=False,
-    optimize=0,
+    # 注意：不要加 optimize=…——那是 PyInstaller 6.x 才有的 Analysis 参数
+    # （本机 6.16 生成 spec 时会写入），Win7 离线线锁 5.13.2，带了会
+    # TypeError 直接崩构建。2026-10-29 Win7 打包失败实证。
 )
 pyz = PYZ(a.pure)
 

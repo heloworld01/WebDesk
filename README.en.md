@@ -19,11 +19,11 @@ Phone (Chrome/Edge/Safari) and the desktop control panel:
 
 | Keyboard mode · portrait | Touch mode · portrait |
 |:---:|:---:|
-| <img src="docs/images/keyboard-portrait.png" width="230"> | <img src="docs/images/screen-portrait.png" width="230"> |
+| <img src="docs/images/keyboard-portrait-en.png" width="230"> | <img src="docs/images/screen-portrait-en.png" width="230"> |
 
 | Touch mode · landscape | Keyboard mode · landscape |
 |:---:|:---:|
-| <img src="docs/images/screen-landscape.png" width="360"> | <img src="docs/images/keyboard-landscape.png" width="360"> |
+| <img src="docs/images/screen-landscape-en.png" width="360"> | <img src="docs/images/keyboard-landscape-en.png" width="360"> |
 
 <details>
 <summary>What you're looking at</summary>
@@ -49,7 +49,7 @@ Connect your phone/tablet to the same Wi-Fi as this PC, scan the QR code on the 
 
 Desktop management UI (PyQt5; the QR code needs the `qrcode` library — both are in requirements):
 
-![Control panel](docs/images/panel.png)
+![Control panel](docs/images/panel-en.png)
 
 - **Start/stop service**: the service runs as a separate process, but **closing the panel window stops the service first** (no leftovers in the background); the status light shows live state and desktop resolution
 - **Connection info**: lists all LAN addresses of this PC (default adapter first, port included in the URL, auto-refreshed and selectable for copying); the **current access code** is shown read-only in the "Access code" field (random codes update live); the QR code embeds `?pin=` so phones connect without typing the code; the info line also shows live **remote connection occupancy `n/1`** (refreshed by health polling)

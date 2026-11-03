@@ -1,5 +1,5 @@
 /* WebDesk 键盘视图（与主页面同一 URL 单页共存，#kbview 覆盖显示时激活）。
-   触摸板手势与主页面一致；虚拟键盘（shift/ctrl·alt 组合键锁存；Caps 真实切远端灯，
+   触摸板手势与主页面一致；虚拟键盘（⇧ 实体移位键按住生效；ctrl·alt 组合键锁存；Caps 真实切远端灯，
    大写态由服务端 {t:'caps'} 回传同步）；
    桌面浏览器可用实体键盘直接转发（中文等输入法在电脑本机或实体键盘侧解决）。
    连接/鉴权/串流模式统一由 app.js 管理，本模块只管输入与光标反馈。 */
@@ -162,40 +162,84 @@
 
   /* ================= 鼠标快捷按钮 ================= */
   const MOUSE_ACT = {
-    esc: () => Net.send({ t: 'key', key: 'esc', d: 'tap' }),
     left: () => Net.send({ t: 'click', btn: 'left' }),
     right: () => Net.send({ t: 'click', btn: 'right' }),
     dbl: () => Net.send({ t: 'click', btn: 'left', dbl: true }),
     wu: () => Net.send({ t: 'wheel', dy: -3 }),
     wd: () => Net.send({ t: 'wheel', dy: 3 }),
   };
-  for (const b of document.querySelectorAll('#mrow button')) {
+  for (const b of document.querySelectorAll('#mrow button[data-a]')) {
     b.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       (MOUSE_ACT[b.dataset.a] || (() => {}))();
       if (navigator.vibrate) navigator.vibrate(8);
     });
   }
+  // 顶栏中/英双字键：两个模式字并列，谁的字更大＝当前在哪套（符号页原地换集）
+  const LANG_HTML = '<span class="z">中</span><span class="s">/</span><span class="e">英</span>';
+  function langBtn(el) {
+    if (!el) return;
+    if (el.innerHTML !== LANG_HTML) el.innerHTML = LANG_HTML;
+    el.classList.toggle('langsw', true);
+    el.classList.toggle('cn', symCn);
+  }
+  const btnSym = $('#btn-symcn');
+  function paintSymBtn() { langBtn(btnSym); }
+  if (btnSym) {
+    btnSym.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      toggleSym();
+    });
+  }
 
-  /* ================= 虚拟键盘 ================= */
-  // 条目：[键名, 显示文字, flex 宽度, shift 符号]；字母默认小写，大写态显示大写
-  // Esc 已移到鼠标快捷行（#mrow）最左，这里不再重复
-  const ROWS = [
-    [['`', '`', 1.3, '~'], ['1', '1', 1, '!'], ['2', '2', 1, '@'],
-     ['3', '3', 1, '#'], ['4', '4', 1, '$'], ['5', '5', 1, '%'], ['6', '6', 1, '^'],
-     ['7', '7', 1, '&'], ['8', '8', 1, '*'], ['9', '9', 1, '('], ['0', '0', 1, ')'],
-     ['-', '-', 1, '_'], ['=', '=', 1, '+'], ['backspace', '⌫', 1.7]],
-    [['tab', 'Tab', 1.55], ['q'], ['w'], ['e'], ['r'], ['t'], ['y'], ['u'], ['i'],
-     ['o'], ['p'], ['[', '[', 1, '{'], [']', ']', 1, '}'], ['\\', '\\', 1, '|']],
-    [['capslock', 'Caps', 1.85, true], ['a'], ['s'], ['d'], ['f'], ['g'], ['h'], ['j'],
-     ['k'], ['l'], [';', ';', 1, ':'], ["'", "'", 1, '"'], ['enter', 'Enter', 1.85]],
-    [['shift', 'Shift', 2.15, true], ['z'], ['x'], ['c'], ['v'], ['b'], ['n'], ['m'],
-     [',', ',', 1, '<'], ['.', '.', 1, '>'], ['/', '/', 1, '?']],
-    [['ctrl', 'Ctrl', 2.2], ['alt', 'Alt', 2.2],
-     ['space', 'Space', 0, true]],
+  /* ================= 虚拟键盘（两页 + 中英符号集，iPhone 式切换） =================
+     页1 = 字母+数字；页2 = 符号（EN 集物理组合注入 / 中文集 VK_PACKET 文本注入，同格互切）。
+     Caps 在倒数第二行最左（绝对态点远端灯），⇧ 在底排最左（仅下一键临时大写）。
+     条目：[键名, 显示文字?, flex?]；Esc 在数字行最左，页切换与中/英切换在鼠标快捷行（#mrow）。 */
+  // 页1 也随中/英换装：中文模式句号/逗号键帽显示全角、注入走 VK_PACKET
+  // （与符号页 CN 集同路线）；英文模式维持物理键直打半角
+  function p1Rows() {
+    return [
+      [['esc', 'Esc'], ['1'], ['2'], ['3'], ['4'], ['5'], ['6'], ['7'], ['8'], ['9'], ['0']],
+      [['q'], ['w'], ['e'], ['r'], ['t'], ['y'], ['u'], ['i'], ['o'], ['p'],
+       ['backspace', '⌫', 1.5]],
+      [['a'], ['s'], ['d'], ['f'], ['g'], ['h'], ['j'], ['k'], ['l'], ['enter', 'Enter', 1.6]],
+      [['caps', 'Caps', 1.6], ['z'], ['x'], ['c'], ['v'], ['b'], ['n'], ['m'],
+       [',', symCn ? '，' : ','], ['.', symCn ? '。' : '.']],
+    ];
+  }
+  // 符号页 4×8；EN ⇄ 中文按设计稿同格一一对应（同意象互换，切换不挪手）
+  const SYM_EN = [
+    [['['], [']'], ['{'], ['}'], ['('], [')'], ['<'], ['>']],
+    [['-'], ['='], ['_'], ['+'], ['/'], ['\\'], ['|'], ['~']],
+    [['!'], ['?'], [','], ['.'], [':'], [';'], ['"'], ["'"]],
+    [['@'], ['#'], ['$'], ['%'], ['^'], ['&'], ['*'], ['`']],
   ];
+  const SYM_CN = [
+    [['（'], ['）'], ['【'], ['】'], ['《'], ['》'], ['「'], ['」']],
+    [['－'], ['＝'], ['＿'], ['＋'], ['／'], ['＼'], ['｜'], ['～']],
+    [['！'], ['？'], ['，'], ['。'], ['：'], ['；'], ['“'], ['”']],
+    [['＠'], ['＃'], ['￥'], ['％'], ['、'], ['×'], ['÷'], ['…']],
+  ];
+  // 上档符号 → 物理底键（combo 注入 shift+底键，扫描码路线游戏兼容）
+  const SHIFT_BASE = {
+    '!': '1', '@': '2', '#': '3', '$': '4', '%': '5', '^': '6', '&': '7', '*': '8',
+    '(': '9', ')': '0', '=': '-', '+': '=', '{': '[', '}': ']', '|': '\\', '~': '`',
+    ':': ';', '"': "'", '<': ',', '>': '.', '?': '/',
+  };
+  const DIRECT_SYM = new Set(['[', ']', '-', ',', '.', '/', '\\', ';', "'", '`']);
+  const CN_CHARS = new Set([].concat(...SYM_CN).map((r) => r[0]));
 
-  let shiftLatch = false, capsOn = false;
+  let page = 'abc';                              // 'abc' | 'sym'
+  let symCn = localStorage.getItem('wd_symcn') === '1';
+
+  let shiftDown = false, capsOn = false;        // ⇧ 实体键语义：按住期间远端 shift 处于按下态
+  function releaseShift() {                     // 失焦/切视图/重建键帽时保证抬起远端 shift
+    if (!shiftDown) return;
+    shiftDown = false;
+    Net.send({ t: 'key', key: 'shift', d: 'up' });
+    paintMods();
+  }
   // 大写态以远端真实灯态为准：服务端在 Caps 变化时推 {t:'caps'}，本地即时校准
   Net.on('caps', (m) => {
     const on = !!m.on;
@@ -203,81 +247,170 @@
     capsOn = on;
     paintMods(); paintCase();
   });
-  const mods = new Set();                       // 锁存的 ctrl/alt/win
-  const MOD_KEYS = new Set(['shift', 'capslock', 'ctrl', 'alt', 'win']);
+  const mods = new Set();                       // 锁存的 ctrl/alt
 
   const kbRoot = $('#kb');
   const modBtns = {};
   const letterBtns = [];                        // 字母键随大写态切换显示
-  function buildKB() {
-    kbRoot.innerHTML = '';
-    letterBtns.length = 0;
-    for (const row of ROWS) {
+  function bottomRow() {                          // 两页底排完全一致（iPhone 式：⇧ 在左下角）
+    return [['shift', 'Shift', 1.6], ['tab', 'Tab'], ['ctrl', 'Ctrl'], ['alt', 'Alt'],
+            ['space', 'Space'],
+            ['left', '←'], ['down', '↓'], ['right', '→']];
+  }
+  // 方向键（两页通用）：60% 机械键盘排法——←↓→ 排在底行行尾，↑ 排在第 4 行
+  // 行尾（紧跟句点，不留整列空档），↑/↓/→ 及占位格统一固定宽度（.ak），
+  // ↑ 恰好落在 ↓ 正上方；行尾“.”与“↑”之间不再空出一条键列。
+  // spacer = ↑ 右侧（→ 正上方）的不可见占位格，保证 ↑/↓ 列对齐
+  function row4WithUp(row) { return row.concat([['up', '↑'], ['spacer', '·']]); }
+  const ARROWS = new Set(['up', 'down', 'left', 'right']);
+  function rowsNow() {
+    const rows = (page === 'abc' ? p1Rows() : (symCn ? SYM_CN : SYM_EN)).slice();
+    rows[rows.length - 1] = row4WithUp(rows[rows.length - 1]);   // 第4行行尾接 ↑ + 占位格
+    return rows.concat([bottomRow()]);
+  }
+  function makeRow(row) {
       const r = document.createElement('div');
       r.className = 'krow';
       for (const entry of row) {
-        const [key, label0, flex] = entry;
+        const key = entry[0];
+        const label = typeof entry[1] === 'string' ? entry[1] : key;
+        const flex = typeof entry[1] === 'number' ? entry[1] : entry[2];
+        if (key === 'spacer') {                  // ↑ 与行尾间的隐形占位（仅占宽，不响应）
+          const sp = document.createElement('span');
+          sp.className = 'kspacer ak';
+          r.appendChild(sp);
+          continue;
+        }
         const b = document.createElement('button');
         b.dataset.key = key;
-        b.textContent = label0 !== undefined ? label0 : key;   // 字母按默认小写显示
+        b.textContent = label;                   // 字母按默认小写显示
+        if (ARROWS.has(key)) b.classList.add('ak', 'arrow');   // 方向键固定宽，↑/↓ 精确同列
         if (/^[a-z]$/.test(key)) letterBtns.push(b);
         if (key === 'space') b.className = 'space';
         else if (flex) b.style.flex = String(flex);
-        if (MOD_KEYS.has(key)) { b.classList.add('mod', 'wide'); modBtns[key] = b; }
-        else if (label0 && label0.length > 1) b.classList.add('wide');
+        if (key === 'shift') {                   // ⇧ 实体键语义：按下发 shift down、抬起发 up；
+          b.classList.add('mod', 'wide');        // 按住时另一指可点字母/鼠标键成真组合，
+          modBtns[key] = b;                      // 快点一下 = 远端收到一次裸 Shift
+          b.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            try { b.setPointerCapture(e.pointerId); } catch (err) { /* 合成事件无活动指针 */ }
+            if (!shiftDown) {
+              shiftDown = true;
+              paintMods();
+              Net.send({ t: 'key', key: 'shift', d: 'down' });
+              if (navigator.vibrate) navigator.vibrate(8);
+            }
+          });
+          const shiftUp = () => {
+            if (!shiftDown) return;
+            shiftDown = false;
+            paintMods();
+            Net.send({ t: 'key', key: 'shift', d: 'up' });
+          };
+          b.addEventListener('pointerup', shiftUp);
+          b.addEventListener('pointercancel', shiftUp);
+          r.appendChild(b);
+          continue;
+        }
+        if (key === 'caps' || key === 'ctrl' || key === 'alt') {
+          b.classList.add('mod', 'wide'); modBtns[key] = b;
+        } else if (label.length > 1) b.classList.add('wide');
         b.addEventListener('pointerdown', (e) => { e.preventDefault(); press(entry); });
         r.appendChild(b);
       }
-      kbRoot.appendChild(r);
-    }
+      return r;
+  }
+  function buildKB() {
+    releaseShift();                              // 键帽重建前先抬起按住中的 shift，防卡键
+    kbRoot.innerHTML = '';
+    letterBtns.length = 0;
+    for (const k of ['shift', 'caps', 'ctrl', 'alt']) delete modBtns[k];
+    for (const row of rowsNow()) kbRoot.appendChild(makeRow(row));
     paintMods();
     paintCase();
+    paintSymBtn();
+    paintPageBtn();
   }
 
   function paintMods() {
-    if (modBtns['shift']) modBtns['shift'].classList.toggle('active', shiftLatch);
-    if (modBtns['capslock']) modBtns['capslock'].classList.toggle('active', capsOn);
-    for (const m of ['ctrl', 'alt', 'win'])
+    if (modBtns['shift']) modBtns['shift'].classList.toggle('active', shiftDown);
+    if (modBtns['caps']) modBtns['caps'].classList.toggle('active', capsOn);
+    for (const m of ['ctrl', 'alt'])
       if (modBtns[m]) modBtns[m].classList.toggle('active', mods.has(m));
   }
-  function paintCase() {                        // 大写（Caps 或 Shift 锁存）→ 字母显示大写
-    const up = capsOn || shiftLatch;
+  function paintCase() {                        // 远端 Caps 灯亮 → 字母显示大写
+    const up = capsOn;
     for (const b of letterBtns) b.textContent = up ? b.dataset.key.toUpperCase() : b.dataset.key;
   }
 
+  function toggleSym() {                        // 顶栏中/英键：符号页键帽原地换集，选择按设备记忆
+    symCn = !symCn;
+    try { localStorage.setItem('wd_symcn', symCn ? '1' : '0'); } catch (e) { /* 忽略 */ }
+    buildKB();                                  // 键帽原地换字 + 同步顶栏按钮态
+    Net.send({ t: 'ime', cn: symCn });          // 联动电脑输入法：中=中文输入法，英=英文键盘
+    if (navigator.vibrate) navigator.vibrate(6);
+  }
+
+  const btnPage = $('#btn-page');
+  function paintPageBtn() {                     // 顶栏页切换键：显示目标页名
+    if (!btnPage) return;
+    btnPage.textContent = page === 'abc' ? '#+=' : 'ABC';
+    btnPage.classList.toggle('active', page === 'sym');
+  }
+  function togglePage() {                       // #+= ⇄ ABC 页切换
+    page = page === 'abc' ? 'sym' : 'abc';
+    buildKB();
+    if (navigator.vibrate) navigator.vibrate(6);
+  }
+  if (btnPage) btnPage.addEventListener('pointerdown', (e) => { e.preventDefault(); togglePage(); });
+
+  /* 符号页按键路由：中文全角字符 → VK_PACKET 文本注入（绕过远端输入法）；
+     EN 集：无位移物理键直打，上档符号走 shift+底键组合 */
+  function sendSym(ch) {
+    mods.clear(); paintMods();
+    if (navigator.vibrate) navigator.vibrate(6);
+    if (CN_CHARS.has(ch)) { Net.send({ t: 'text', s: ch }); return; }
+    if (DIRECT_SYM.has(ch)) { Net.send({ t: 'key', key: ch, d: 'tap' }); return; }
+    const base = SHIFT_BASE[ch];
+    if (base) Net.send({ t: 'combo', keys: ['shift', base] });
+  }
+
   function press(entry) {
-    const [key, , , sym] = entry;
-    if (key === 'shift') { shiftLatch = !shiftLatch; paintMods(); paintCase(); return; }
-    if (key === 'capslock') {
-      // 真实 CapsLock 语义：点亮/熄灭的是远端大写灯。先把键发给远端，本地乐观翻转，
-      // 稍后服务端 {t:'caps'} 回传真实灯态做最终校准（远端被程序改灯也能纠正显示）
-      Net.send({ t: 'key', key: 'capslock', d: 'tap' });
-      capsOn = !capsOn; paintMods(); paintCase();
+    const key = entry[0];
+    const label = typeof entry[1] === 'string' ? entry[1] : key;
+    if (key === 'caps') {                       // Caps：绝对态设置远端灯，服务端“≠目标才敲”并回显
+      if (!Net.blocked) {                       // （防误触开启时消息会被丢弃——不发送也不点亮）
+        capsOn = !capsOn;
+        Net.send({ t: 'caps_set', on: capsOn });
+      }
+      paintMods(); paintCase();
       if (navigator.vibrate) navigator.vibrate(6);
       return;
     }
-    if (key === 'ctrl' || key === 'alt' || key === 'win') {
+    if (key === 'ctrl' || key === 'alt') {
       mods.has(key) ? mods.delete(key) : mods.add(key);
       paintMods(); return;
     }
-    if (key === 'space') { sendCombo(['space'], false); return; }
-    // 大写态现在真实存在于远端：字母键不再叠加 shift（否则 shift 会把大写翻回小写）；
-    // 数字/符号键 shift 才能出上档符号，与远端 caps 无关，照常按 caps/shift 锁存加 shift
-    const isLetter = /^[a-z]$/.test(key);
-    const wantShift = shiftLatch || (!isLetter && sym && capsOn);
-    sendCombo([key], wantShift);
+    if (key === 'space' || key === 'enter' || key === 'backspace' || key === 'tab' || key === 'esc') {
+      sendCombo([key]); return;
+    }
+    if (ARROWS.has(key)) { sendCombo([key]); return; }   // 方向键：符号页同用，Ctrl 锁存照常作前缀
+    if (page === 'sym') { sendSym(label); return; }
+    // 中文模式页1句读：注入全角（VK_PACKET），与键帽显示一致；
+    // Ctrl/Alt 锁存中则不打断组合快捷键，仍走物理键
+    if (symCn && !mods.size && (key === ',' || key === '.')) { sendSym(label); return; }
+    // 字母/数字直打：⇧ 大写由按住中的远端物理 shift 完成；Ctrl/Alt 锁存作前缀组合
+    sendCombo([key]);
   }
 
-  function sendCombo(keyList, withShift) {
+  function sendCombo(keyList) {
     const keys = [];
     if (mods.has('ctrl')) keys.push('ctrl');
     if (mods.has('alt')) keys.push('alt');
-    if (mods.has('win')) keys.push('win');
-    if (withShift) keys.push('shift');
     keys.push(...keyList);
     if (keys.length === 1) Net.send({ t: 'key', key: keys[0], d: 'tap' });
     else Net.send({ t: 'combo', keys });
-    shiftLatch = false; mods.clear();
+    mods.clear();
     paintMods();
     paintCase();
     if (navigator.vibrate) navigator.vibrate(6);
@@ -316,7 +449,9 @@
   function releaseAllPhysical() {              // 切走视图时全部松键，防粘滞
     for (const k of pressed) Net.send({ t: 'key', key: k, d: 'up' });
     pressed.clear();
+    releaseShift();
   }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseShift(); });
   window.addEventListener('keydown', (e) => {
     if (!active) return;                       // 只在键盘视图激活时转发实体键，避免与画面模式重复
     if (typingHere(e.target)) return;
@@ -324,7 +459,14 @@
     const k = physKey(e);
     if (!k) return;
     e.preventDefault();
-    if (e.repeat || pressed.has(k)) return;
+    if (e.repeat) return;
+    if (k === 'capslock') {
+      // 实体 Caps 键：OS 已按真实按键翻转了本机灯态，以此为绝对目标让远端收敛
+      // （绝对态而非再 tap 一次：同机场景下不会被二次取反，异机场景照常跟随）
+      Net.send({ t: 'caps_set', on: e.getModifierState('CapsLock') });
+      return;
+    }
+    if (pressed.has(k)) return;
     pressed.add(k);
     Net.send({ t: 'key', key: k, d: 'down' });
   });
@@ -343,10 +485,12 @@
       if (active && !v) releaseAllPhysical();
       active = v;
     },
-    reset() {                                  // 进入键盘视图：清残留手势/锁存，防跨模式串状态
+    reset() {                                  // 进入键盘视图/底栏停靠：清残留并复位到字母页
       pointers.clear(); gesture = null;
       mvAccX = 0; mvAccY = 0;
-      shiftLatch = false; mods.clear(); paintMods();
+      mods.clear();                             // buildKB 内部已 releaseShift
+      page = 'abc';
+      buildKB();
     },
   };
 })();

@@ -19,7 +19,7 @@ import threading
 import time
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QComboBox, QDoubleSpinBox,
                              QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                              QMenu, QMessageBox, QPlainTextEdit, QPushButton,
@@ -59,12 +59,14 @@ GREEN, RED, AMBER, GRAY = "#2eaa5e", "#e05252", "#e0a13a", "#8a93a5"
 GRAY_TXT, BAD_TXT = "#666666", "#c0392b"
 
 # 折叠区头：整行可点的扁平标题条（远程桌面配置 / 服务日志共用）
-_HEADER_QSS = (
-    "QPushButton { text-align:left; color:#3a4252; background:#eef1f6;"
-    " border:1px solid #d8dde6; border-radius:4px; padding:5px 10px;"
-    " font-weight:bold; }"
-    " QPushButton:hover { background:#e2e8f1; }"
-    " QPushButton:pressed { background:#d7dfec; }")
+# padding 以 %d 占位：窗口缩放时按同一比例重设（字号随全局字体自动缩放）
+def _header_qss(s=1.0):
+    return ("QPushButton { text-align:left; color:#3a4252; background:#eef1f6;"
+            " border:1px solid #d8dde6; border-radius:4px;"
+            " padding:%dpx %dpx; font-weight:bold; }"
+            " QPushButton:hover { background:#e2e8f1; }"
+            " QPushButton:pressed { background:#d7dfec; }") % (
+        max(2, round(5 * s)), max(4, round(10 * s)))
 
 
 # ---------------------------------------------------------------------------
@@ -117,17 +119,29 @@ def lan_ips():
 
 
 def monitor_options():
-    """显示器下拉选项：显示真实分辨率（mss 不可用时给通用项）。标签随当前语言生成。"""
-    opts = [(t("mon_primary"), "primary"), (t("mon_all"), "all")]
+    """显示器下拉选项：每块物理屏恰好一项，主屏标「主屏」、其余标「屏幕N」，均带
+    真实分辨率（mss 不可用时兜底单项）。标签随当前语言生成。
+    不提供拼合项：mss 的 monitors[0] 是所有屏的外接虚拟屏——单屏时它与主屏像素级
+    相同（纯冗余，正是旧版"笔记本只有一块屏却出现三个选项"的来源）；多屏时抓拼合
+    对远程操作也没意义。主屏项值保持 "primary"：老配置无缝沿用，且换屏/插拔后
+    序号漂移时 capture 仍按原点 (0,0) 认主屏，比钉死序号稳。"""
     try:
         import mss
         with mss.mss() as sct:
-            for i, mm in enumerate(sct.monitors):
-                if i:  # monitors[0] 是所有屏的拼合虚拟屏
-                    opts.append((t("mon_n", n=i, w=mm["width"], h=mm["height"]), str(i)))
+            mons = list(sct.monitors)
     except Exception:
-        opts += [(t("mon_n_plain", n=1), "1"), (t("mon_n_plain", n=2), "2")]
-    return opts
+        return [(t("mon_primary"), "primary")]
+    primary = next((i for i, mm in enumerate(mons)
+                    if i and mm["left"] == 0 and mm["top"] == 0), 1)
+    opts = []
+    for i, mm in enumerate(mons):
+        if not i:  # monitors[0] 是拼合虚拟屏，跳过
+            continue
+        if i == primary:
+            opts.append((t("mon_primary_n", w=mm["width"], h=mm["height"]), "primary"))
+        else:
+            opts.append((t("mon_n", n=i, w=mm["width"], h=mm["height"]), str(i)))
+    return opts or [(t("mon_primary"), "primary")]
 
 
 def make_tray_icon(color):
@@ -357,12 +371,22 @@ class Panel(QWidget):
         self._last_code = None
 
         self.setWindowTitle(t("title"))
+        # 窗口缩放联动内容：以基准宽 800 为 100%，拖宽/拖窄窗口时按宽度比例整体
+        # 缩放字号与固定像素控件（内容跟随窗口放大/缩小）。基准字体必须在建窗
+        # 前抓取——_apply_scale 里要在它之上乘系数，不能拿“已缩放过的”当前值迭代
+        self._base_font = QFont(QApplication.instance().font())
+        self._scale = 1.0
+        self._scale_timer = QTimer(self)      # 拖动中合并触发，停手后再重排
+        self._scale_timer.setSingleShot(True)
+        self._scale_timer.setInterval(120)
+        self._scale_timer.timeout.connect(self._apply_scale)
         self._build()
         self._refresh_info()
         # 宽度只认基准宽，不跟 sizeHint 走：带 wordWrap 的灰字提示 sizeHint 仍按
         # 单行报（Qt 启发式），adjustSize 会把英文窗体撑到 1500+；长提示改为
         # 折行后按 _base_w 定宽即可（高度仍由 sizeHint/minimumHeight 收放）
-        self.setMinimumWidth(self._base_w())
+        # 下限放到基准宽的 75%：缩小方向也要拖得动，内容按比例变小
+        self.setMinimumWidth(self._min_w())
         self.adjustSize()
         self.resize(self._base_w(), self.height())
         # 高度起步基准=最小高度（与折叠收放同一口径）。show 前布局未激活算不出
@@ -496,17 +520,22 @@ class Panel(QWidget):
         # checked=False，会被当成 force=False，折叠后永远展不开（原 bug）。
         # 现在用 checkable 按钮：勾选态即开合态（单一事实来源），toggled 驱动。
         self._cfg_open = len(self.monitors) > 1
-        self.f_cfg = QWidget()
-        self.f_cfg.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.btn_cfgtoggle = self._section_header()
         self.btn_cfgtoggle.setChecked(self._cfg_open)
         self.btn_cfgtoggle.setText(self._cfg_btn_text())
         self.btn_cfgtoggle.toggled.connect(self._set_cfg_open)
         root.addWidget(self.btn_cfgtoggle)
         self.f_cfg = QWidget()
+        # 纵向钉 Fixed（同 f_info）：曾经这里重复 QWidget() 了一次，把 Fixed 策略
+        # 连第一份控件一起丢掉——窗口拉高/最大化时本区按 Preferred 吞掉全部余量，
+        # 内部控件被摊开、日志区被顶出屏幕（2026-11-02 用户实证“位置偏差大”）
+        self.f_cfg.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         g = QGridLayout(self.f_cfg)
         self.lbl_mon = QLabel(t("lbl_monitor"))
         self.cb_mon = QComboBox()
+        # 默认策略只在首显时按条目量一次宽，之后 addItem/换语言重刷都不会重算
+        # → "主屏  1920x1080" 这类长条目被截断。改成内容变化即自适应
+        self.cb_mon.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         g.addWidget(self.lbl_mon, 0, 0)
         g.addWidget(self.cb_mon, 0, 1)
         self.chk_webrtc = QCheckBox(t("chk_webrtc"))
@@ -578,6 +607,30 @@ class Panel(QWidget):
         self.btn_cfgtoggle.setText(self._cfg_btn_text())
         self._apply_pin_look()
 
+    def _refresh_monitors(self):
+        """重探测显示器列表并刷新下拉。调用点：语言切换（条目取新语言文案）、
+        重启服务成功（停机期间可能插拔了显示器，列表必须跟着环境走）。
+        值序列没变（多数情况）→ 只改条目文字，选中/焦点不动；
+        插拔导致数量或次序变了 → 整体重建，尽量按当前选中值复位，找不到落到第 0 项。
+        注意保住「当前 UI 选中」而不是 cfg 里的值：用户可能改了下拉还没点保存。"""
+        self.monitors = monitor_options()
+        self.lbl_mon.setText(t("lbl_monitor"))
+        cur = self.cb_mon.currentData() if self.cb_mon.count() else None
+        if cur is None:
+            cur = str(self.cfg.get("monitor", "primary"))
+        vals = [v for _, v in self.monitors]
+        if [self.cb_mon.itemData(i) for i in range(self.cb_mon.count())] == vals:
+            for i, (label, _v) in enumerate(self.monitors):
+                self.cb_mon.setItemText(i, label)
+            return
+        self.cb_mon.blockSignals(True)
+        self.cb_mon.clear()
+        for label, val in self.monitors:
+            self.cb_mon.addItem(label, val)
+        idx = self.cb_mon.findData(cur)
+        self.cb_mon.setCurrentIndex(idx if idx >= 0 else 0)
+        self.cb_mon.blockSignals(False)
+
     def _load_cfg_into_widgets(self):
         """配置 → 控件（下拉用 addItem 的 userData 定位，语言无关）。"""
         self.cb_mon.blockSignals(True)
@@ -611,7 +664,7 @@ class Panel(QWidget):
         b = QPushButton()
         b.setCheckable(True)
         b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        b.setStyleSheet(_HEADER_QSS)
+        b.setStyleSheet(_header_qss())
         return b
 
     def _cfg_btn_text(self):
@@ -640,7 +693,8 @@ class Panel(QWidget):
         否则释放的空间会被转嫁给纵向 Preferred 的「连接信息」区（原症状）。
         日志区纵向 Expanding：窗口比最小高度高出的部分全补给日志。"""
         self.layout().activate()
-        self.resize(self.width(), self.minimumHeight())
+        if not self.isMaximized():     # 最大化下 resize 会改写最大化几何（见 _apply_scale）
+            self.resize(self.width(), self.minimumHeight())
 
     @staticmethod
     def _base_w():
@@ -648,6 +702,72 @@ class Panel(QWidget):
         长灰字提示均 wordWrap（窄了自动折行）；英文态不可折的硬内容
         （勾选框/输入行/二维码列）靠精简文案容进同宽。"""
         return 800
+
+    # ---------- 窗口缩放 → 内容缩放 ----------
+    SCALE_MIN, SCALE_MAX = 0.75, 2.0
+
+    def _min_w(self):
+        """窗口宽度下限：允许缩到基准宽的 SCALE_MIN（内容同比例缩小）。"""
+        return int(self._base_w() * self.SCALE_MIN)
+
+    def _want_scale(self):
+        return max(self.SCALE_MIN, min(self.SCALE_MAX,
+                                       self.width() / float(self._base_w())))
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if getattr(self, "_scale_timer", None) is None:   # __init__ 早期即触发
+            return
+        if abs(self._want_scale() - self._scale) >= 0.04:
+            self._scale_timer.start()   # 拖动中反复重置，停手 120ms 后一次到位
+
+    def _apply_scale(self):
+        s = self._want_scale()
+        if abs(s - self._scale) < 0.02:
+            return
+        self._scale = s
+        # 最大化时只缩放内容、绝不 resize：resize 会把“最大化”几何改写成自己算的
+        # 高度（实测超高屏幕 1679px），还顺手覆盖 showNormal 要还原的普通几何
+        maximized = self.isMaximized()
+        # 用户额外撑高的高度（展开的日志区纵向 Expanding 吃这部分）按同比例保留
+        extra = 0 if maximized else max(0, self.height() - self.minimumHeight())
+        app = QApplication.instance()
+        f = QFont(self._base_font)
+        f.setPointSizeF(max(6.0, self._base_font.pointSize() * s))
+        app.setFont(f)                  # 未显式 setFont 的控件全部自动跟随
+        # 例外：QPlainTextEdit 建控件时就自持一份字体（WA_SetFont），不吃全局
+        # 字体广播，地址框/日志必须显式镜像，否则缩放后仍按原字号渲染
+        self.txt_info.setFont(f)
+        self.txt_log.setFont(f)
+        # 建窗时显式钉过字号的两处（状态灯/状态文字）按同一系数重设
+        fl = QFont(app.font())
+        fl.setPointSizeF(16 * s)
+        self.lamp.setFont(fl)
+        fst = QFont(app.font())
+        fst.setPointSizeF(14 * s)
+        fst.setBold(True)
+        self.lbl_status.setFont(fst)
+        # 建窗时写死像素尺寸的控件按比例重钉
+        self.btn_toggle.setMinimumWidth(int(92 * s))
+        self.btn_restart.setMinimumWidth(int(92 * s))
+        self.e_pin.setFixedWidth(int(140 * s))
+        self.e_port.setFixedWidth(int(70 * s))
+        # 用缩放后的全局字体直接量行高：控件的 FontChange 尚未派发，此刻
+        # txt_info.fontMetrics() 还是旧值，钉出来的高度会停在旧档
+        self.txt_info.setFixedHeight(4 * QFontMetrics(app.font()).lineSpacing() + 14)
+        self.txt_log.setMinimumHeight(int(150 * s))
+        for b in (self.btn_cfgtoggle, self.btn_logtoggle):
+            b.setStyleSheet(_header_qss(s))
+        # 窗口缩窄时右列容不下这两条单行灰字提示：只在缩小档放开折行兜底。
+        # 1.0 档绝不开——QLabel 折行模式按“平衡宽度”启发式主动折行（宽度够也折，
+        # 2026-10-29 用户实证），平时必须保持单行
+        wrap = s < 0.97
+        self.lbl_info_hint.setWordWrap(wrap)
+        self.lbl_pin_hint.setWordWrap(wrap)
+        self.layout().activate()
+        self._make_qr()                 # 二维码按右列新高度自适应重画
+        if not maximized:
+            self.resize(self.width(), self.minimumHeight() + int(extra * s))
 
     # ---------- 语言 ----------
     def _set_lang(self, lang):
@@ -682,15 +802,7 @@ class Panel(QWidget):
             self.btn_cfgtoggle.setText(self._cfg_btn_text())
             self.btn_logtoggle.setText(
                 ("▾ " if self._log_open else "▸ ") + t("log_title"))
-            # 屏幕下拉：只改条目文字，userData 不变 → 选中项自动保持；
-            # 显示器数量变了（换屏/插拔）才整体重建
-            self.monitors = monitor_options()
-            self.lbl_mon.setText(t("lbl_monitor"))
-            if self.cb_mon.count() == len(self.monitors):
-                for i, (label, _val) in enumerate(self.monitors):
-                    self.cb_mon.setItemText(i, label)
-            else:
-                self._load_cfg_into_widgets()
+            self._refresh_monitors()   # 换语言顺带重探测：条目文字取新语言，选中按值保持
             self.cb_view.setItemText(0, t("view_touch"))
             self.cb_view.setItemText(1, t("view_kb"))
             self.chk_webrtc.setText(t("chk_webrtc"))
@@ -705,13 +817,14 @@ class Panel(QWidget):
                 self._act_show.setText(t("tray_show"))
                 self._act_toggle.setText(t("btn_stop") if self._health else t("btn_start"))
                 self._act_quit.setText(t("tray_quit"))
-            # 按新语言重排窗口：宽度直接定到新基准宽（长提示 wordWrap 折行，
-            # 不跟 sizeHint 走——它按单行报，会把英文窗体撑到 1500+）；
-            # 高度取"现高与提示高较大者"，切语言不收用户已经撑开的高度
-            self.setMinimumWidth(self._base_w())
+            # 按新语言重排窗口：宽度定到"基准宽×当前缩放系数"（长提示 wordWrap 折行，
+            # 不跟 sizeHint 走——它按单行报，会把英文窗体撑到 1500+），保住用户的
+            # 缩放档位；高度取"现高与提示高较大者"，切语言不收用户已经撑开的高度
+            self.setMinimumWidth(self._min_w())
             self.adjustSize()
-            self.resize(self._base_w(),
-                        max(self.height(), self.sizeHint().height()))
+            if not self.isMaximized():
+                self.resize(int(self._base_w() * self._scale),
+                            max(self.height(), self.sizeHint().height()))
         finally:
             self._retranslating = False
 
@@ -918,6 +1031,7 @@ class Panel(QWidget):
             info = self.ctrl.health(port)
             if info:
                 self.q.put(("health", info))
+                self.q.put(("rescan", None))   # 重启≈环境快照刷新：重探测显示器列表
                 self.q.put(("note", t("note_restarted")))
                 return
         self.q.put(("down", None))
@@ -1082,6 +1196,8 @@ class Panel(QWidget):
                         need = self.sizeHint().height()
                         if self.height() < need:
                             self.resize(self.width(), need)
+                elif kind == "rescan":
+                    self._refresh_monitors()
                 elif kind == "log":
                     self._log(payload)
                 elif kind == "down":

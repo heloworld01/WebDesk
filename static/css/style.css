@@ -7,7 +7,9 @@ html, body {
 
 /* ---------- 画面 ---------- */
 .scr {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  /* --dock-h：底栏键盘停靠高度（JS 设置）。画面中心上移半个停靠高度，正好铺满剩余区域 */
+  position: absolute; left: 50%; top: calc(50% - var(--dock-h, 0px) / 2);
+  transform: translate(-50%, -50%);
   transform-origin: center center;
   max-width: 100vw; max-height: 100vh; background: #111; object-fit: fill;
   touch-action: none;
@@ -46,16 +48,35 @@ html, body {
 #toolbar button.on { background: #2f6fed; border-color: #2f6fed; }
 #toolbar button.wait { background: #b07a1e; border-color: #d99a2b; color: #fff; }  /* 音频连接中 */
 #btn-kbpage {
-  position: absolute; left: 40px; top: calc(8px + env(safe-area-inset-top)); z-index: 50;
+  position: absolute; left: calc(8px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top)); z-index: 50;
 }
 #toolbar button.off { background: rgba(120,60,60,.75); border-color: #a55; color: #fdd; }
+/* 触屏设备竖屏时隐藏「全屏」：竖屏全屏无意义，横屏才需要；
+   「键盘」停靠按钮则相反——只在竖屏触屏出现（横屏本就容得下画面+键盘） */
+#btn-kbdock { display: none; }
+@media (orientation: portrait) and (pointer: coarse) {
+  #btn-full { display: none; }
+  #btn-kbdock { display: block; }
+}
+
+/* ---------- 竖屏底栏键盘停靠（#mrow + #kb 由 JS 移入，样式复用 kb.css，与键盘模式同款） ---------- */
+#kbdock {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 70;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #0e1424; border-top: 1px solid rgba(255,255,255,.08);
+  touch-action: manipulation;
+}
+#kbdock #mrow, #kbdock #kb { box-sizing: border-box; }
+/* #kb 自带的底部安全区内边距由 #kbdock 统一负责，停靠时去掉避免双重留白 */
+#kbdock #kb { padding-bottom: 4px; }
 /* 闲置变淡防误触；轻触即恢复 */
 #toolbar, #zoombar, #btn-kbpage { transition: opacity .6s; }
 #toolbar.dim, #zoombar.dim, #btn-kbpage.dim { opacity: .28; }
 
 /* ---------- 画面缩放条 ---------- */
+/* 右上角（用户指定默认位）：挂在顶部工具栏下沿之下 */
 #zoombar {
-  position: absolute; right: 8px; bottom: calc(16px + env(safe-area-inset-bottom));
+  position: absolute; right: 8px; top: calc(14px + env(safe-area-inset-top) + 32px);
   display: flex; flex-direction: column; gap: 8px; z-index: 50;
 }
 #zoombar button {
@@ -87,10 +108,21 @@ html, body {
 .drawer .row { justify-content: flex-start; }
 
 /* ---------- 控件层 ---------- */
-#controls { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+/* 摇杆/按钮层：底部让出键盘停靠高度——竖屏开键盘时画面已按 --dock-h 上移，
+   本层同步收缩后控件的 % 坐标整体落回键盘上方，不再被停靠键盘遮挡 */
+#controls { position: absolute; left: 0; right: 0; top: 0; bottom: var(--dock-h, 0px); z-index: 40; pointer-events: none; }
 body.editing #controls { pointer-events: auto; }
 #controls:not(.hide-widgets) { }
 #controls.hide-widgets .widget { display: none; }
+/* 竖屏触屏开键盘（body.kb-docked，由 applyDock 挂摘）：控件层已让出底部键盘区，
+   摇杆再往右下挪一点更贴手；左/右/双击按钮隐藏——触屏直接点画面即可完成点击，
+   按钮此时只碍事。均为纯视觉偏移，不改动用户存的布局数据；编辑模式不受影响 */
+body.kb-docked:not(.editing) .widget.wstick[data-wid="s1"] {
+  transform: translate(calc(-50% + 28px), calc(-50% + 44px));
+}
+body.kb-docked:not(.editing) .widget.wbtn[data-wid="b1"],
+body.kb-docked:not(.editing) .widget.wbtn[data-wid="b2"],
+body.kb-docked:not(.editing) .widget.wbtn[data-wid="b3"] { display: none; }
 
 .widget { position: absolute; pointer-events: auto; transform: translate(-50%, -50%); touch-action: none; }
 .widget.wbtn {

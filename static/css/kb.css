@@ -23,11 +23,17 @@
   color: #9fc0ff; font-size: 13px; text-decoration: none; padding: 4px 10px;
   border: 1px solid rgba(255,255,255,.14); border-radius: 9px; background: rgba(47,111,237,.16);
 }
-/* 语言切换：与「触屏模式」同款的紧凑按钮 */
-#kb-lang {
+/* 语言切换 / 全屏切换：与「触屏模式」同款的紧凑按钮 */
+#kb-lang, #kb-full {
   font: inherit; font-size: 13px; color: #9fc0ff; cursor: pointer; touch-action: manipulation;
   padding: 4px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
   background: rgba(47,111,237,.16); flex: none;
+}
+/* 键盘模式顶栏的「全屏」：已选中（全屏中）高亮，与触屏模式工具栏 .on 同款 */
+#kb-full.on { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+/* 触屏设备竖屏时隐藏「全屏」：与触屏模式(#btn-full)同规则，横屏才显示 */
+@media (orientation: portrait) and (pointer: coarse) {
+  #kb-full { display: none; }
 }
 
 /* ---------- 触摸板 ---------- */
@@ -56,6 +62,11 @@
   touch-action: manipulation;
 }
 #mrow button:active { background: #2f6fed; border-color: #2f6fed; }
+#mrow #btn-page.active { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+/* 中/英双字模式键：当前模式字放大提亮，另一字压暗缩小（顶栏键 + 页2 cn 键共用） */
+.langsw .z, .langsw .e { opacity: .45; font-size: .78em; }
+.langsw .s { opacity: .4; font-size: .7em; }
+.langsw.cn .z, .langsw:not(.cn) .e { opacity: 1; font-size: 1.35em; font-weight: 600; color: #fff; }
 
 /* ---------- 虚拟键盘（键高/间距随视口自适应，横屏矮视口也能完整放下） ---------- */
 #kb {
@@ -71,6 +82,13 @@
   touch-action: manipulation; white-space: pre; overflow: hidden;
 }
 #kb button:active { background: #2f6fed; border-color: #2f6fed; }
+
+/* ---------- 方向键（60% 键盘排法）：固定宽保证 ↑ 精确落在 ↓ 正上方 ----------
+   第4行行尾 … . ↑ [隐形占位]；底行行尾 ← ↓ → 。↑/占位/←/↓/→ 同宽(34px)，
+   两行右缘对齐 ⇒ ↑ 与 ↓ 同列；“.”与“↑”紧邻，不再空出一整列 */
+#kb .ak { flex: 0 0 34px; }
+#kb .arrow { color: #bcd0f7; }
+#kb .kspacer { background: none; border: none; pointer-events: none; }
 #kb button.mod { background: #141c30; color: #9fb4dd; }
 #kb button.mod.active { background: #2f6fed; color: #fff; border-color: #4d86ff; }
 #kb button.wide { color: #bcd0f7; font-size: clamp(11px, 1.6vh, 13px); }
@@ -96,4 +114,5 @@
   /* 行高不再固定，改为按右列剩余高度均分，横屏小视口也能放下并看清全部按键 */
   #kbview #kb .krow { flex: 1 1 0; min-height: 0; gap: 4px; }
   #kbview #kb button { height: auto; min-height: 0; font-size: 13px; }
+  #kbview #kb .kspacer { flex-basis: 34px; }
 }

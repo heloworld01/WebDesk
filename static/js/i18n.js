@@ -43,6 +43,8 @@
       tip_edit: '编辑控件',
       btn_full: '全屏',
       tip_full: '全屏',
+      btn_full_exit: '退出全屏',
+      tip_full_exit: '退出全屏后才能转动屏幕切换横竖屏',
       zoom_in: '放大',
       zoom_out: '缩小',
       zoom_reset: '还原',
@@ -64,7 +66,7 @@
       toast_audio_fail: '音频开启失败: {err}',
       toast_guard_on: '防误触已开：屏幕点按/鼠标/按钮已屏蔽，摇杆方向键仍可用',
       toast_guard_off: '鼠标控制已开启',
-      toast_fullscreen: '已进入全屏（地址栏隐藏）',
+      toast_fullscreen: '已进入全屏：需点「退出全屏」后才能转动屏幕切换横竖屏',
       toast_fullscreen_no: '此浏览器不支持网页全屏。iPhone/iPad：Safari 分享 → “添加到主屏幕”，从主屏幕图标打开即全屏无地址栏',
       toast_zoom_reset: '画面已还原',
       toast_edit_hint: '拖动控件摆放位置，点控件改属性',
@@ -115,6 +117,8 @@
 
       /* ---------- 键盘视图 ---------- */
       kb_touch_mode: '触屏模式',
+      btn_kbdock: '键盘',
+      tip_kbdock: '竖屏时在屏幕下方展开虚拟键盘，画面上移',
       kb_tp_hint: '单指拖动移光标 · 轻点=左键 · 长按=右键 · 双指轻点=双击 · 双指拖动=滚轮',
       mr_left: '左键',
       mr_right: '右键',
@@ -159,6 +163,8 @@
       tip_edit: 'Edit widgets',
       btn_full: 'Fullscreen',
       tip_full: 'Fullscreen',
+      btn_full_exit: 'Exit fullscreen',
+      tip_full_exit: 'Exit fullscreen before rotating to switch orientation',
       zoom_in: 'Zoom in',
       zoom_out: 'Zoom out',
       zoom_reset: 'Reset',
@@ -180,7 +186,7 @@
       toast_audio_fail: 'Audio failed: {err}',
       toast_guard_on: 'Guard on: taps / mouse / buttons are blocked; stick arrow keys still work',
       toast_guard_off: 'Mouse control on',
-      toast_fullscreen: 'Fullscreen (address bar hidden)',
+      toast_fullscreen: 'Fullscreen on: tap “Exit fullscreen” before rotating to switch orientation',
       toast_fullscreen_no: 'This browser cannot fullscreen the page. iPhone/iPad: Safari → Share → “Add to Home Screen”, then open from the home-screen icon for a full-screen page without the address bar',
       toast_zoom_reset: 'View reset',
       toast_edit_hint: 'Drag widgets to position them; tap a widget to edit its properties',
@@ -231,6 +237,8 @@
 
       /* ---------- 键盘视图 ---------- */
       kb_touch_mode: 'Touch mode',
+      btn_kbdock: 'Keys',
+      tip_kbdock: 'Dock the virtual keyboard below the screen (portrait); screen shifts up',
       kb_tp_hint: 'One finger: move cursor · Tap: left click · Long press: right click · Two-finger tap: double-click · Two-finger drag: scroll',
       mr_left: 'Left',
       mr_right: 'Right',
@@ -289,8 +297,10 @@
   window.wdSetLang = wdSetLang;
   window.wdApplyI18n = wdApplyI18n;
 
+  // 注意要包一层箭头函数：直接挂 wdApplyI18n 会把 DOMContentLoaded 的 Event
+  // 当 root 传入（Event.querySelectorAll 不存在直接崩，静态文案替换整体失效）
   if (document.readyState === 'loading')
-    document.addEventListener('DOMContentLoaded', wdApplyI18n);
+    document.addEventListener('DOMContentLoaded', () => wdApplyI18n());
   else wdApplyI18n();
 
   // 语言按钮：全局代理（登录前/键盘视图/主界面共用同一行为）

@@ -32,6 +32,7 @@
   <button id="btn-audio" data-i18n="audio_off" data-i18n-title="tip_audio">音频:关</button>
   <button id="btn-edit" data-i18n="btn_edit" data-i18n-title="tip_edit">编辑</button>
   <button id="btn-full" data-i18n="btn_full" data-i18n-title="tip_full">全屏</button>
+  <button id="btn-kbdock" data-i18n="btn_kbdock" data-i18n-title="tip_kbdock">键盘</button>
 </div>
 
 <!-- 画面缩放（控件按钮不随画面缩放） -->
@@ -69,6 +70,7 @@
     <span id="lamp" class="off"></span>
     <span id="st" data-i18n="st_connecting">连接中…</span>
     <span id="pos"></span>
+    <button id="kb-full" data-i18n="btn_full" data-i18n-title="tip_full">全屏</button>
     <button id="kb-lang" class="wd-lang-btn" data-i18n="lang_other" data-i18n-title="lang_tip">EN</button>
     <a id="go-screen" href="#" role="button" data-i18n="kb_touch_mode">触屏模式</a>
   </header>
@@ -79,7 +81,8 @@
   </div>
 
   <div id="mrow">
-    <button data-a="esc">Esc</button>
+    <button id="btn-page">#+=</button>
+    <button id="btn-symcn">中/英</button>
     <button data-a="left" data-i18n="mr_left">左键</button>
     <button data-a="right" data-i18n="mr_right">右键</button>
     <button data-a="dbl" data-i18n="mr_dbl">双击</button>
@@ -89,6 +92,9 @@
 
   <div id="kb"></div>
 </div>
+
+<!-- 竖屏远程视图的底栏键盘停靠：JS 把 #kb 节点移入此容器，画面按剩余高度重排 -->
+<div id="kbdock" class="hidden"></div>
 
 <script src="/static/js/i18n.js"></script>
 <script src="/static/js/net.js"></script>

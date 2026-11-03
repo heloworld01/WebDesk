@@ -17,15 +17,18 @@
   Net.blocked = !S.inputOn;
 
   /* ---------- 画面缩放 / 平移（只作用于 canvas/video，控件层不缩放） ---------- */
+  // 底栏键盘停靠高度：画面布局/平移边界按「视口高 − 停靠高」计算（.scr 的 CSS 变量由 applyDock 同步）
+  let dockH = 0;
+  const stageH = () => Math.max(120, window.innerHeight - dockH);
   function applyScreen() {
     const t = `translate(calc(-50% + ${S.panX}px), calc(-50% + ${S.panY}px)) scale(${S.zoom})`;
     for (const el of [canvas, video]) el.style.transform = t;
   }
   function clampPan() {
     const w = parseFloat(canvas.style.width) || window.innerWidth;
-    const h = parseFloat(canvas.style.height) || window.innerHeight;
+    const h = parseFloat(canvas.style.height) || stageH();
     const mx = Math.max(0, (w * S.zoom - window.innerWidth) / 2);
-    const my = Math.max(0, (h * S.zoom - window.innerHeight) / 2);
+    const my = Math.max(0, (h * S.zoom - stageH()) / 2);
     S.panX = Math.min(mx, Math.max(-mx, S.panX));
     S.panY = Math.min(my, Math.max(-my, S.panY));
   }
@@ -59,10 +62,10 @@
       .catch(() => { drawing = false; });
   }
   function fitCanvas() {
-    // canvas 与 video 用同一桌面宽高比，居中放置
+    // canvas 与 video 用同一桌面宽高比，在可视区（含停靠扣减）内居中放置
     const ar = S.screenW / S.screenH || 16 / 9;
     let w = window.innerWidth, h = w / ar;
-    if (h > window.innerHeight) { h = window.innerHeight; w = h * ar; }
+    if (h > stageH()) { h = stageH(); w = h * ar; }
     for (const el of [canvas, video]) {
       el.style.width = w + 'px'; el.style.height = h + 'px';
     }
@@ -255,10 +258,11 @@
     if (m.need_auth && !localStorage.getItem('wd_pin')) askCode();
     S.webrtcAvailable = !!m.webrtc;
     // 面板设置的「登录后默认视图」：本次页面首次 hello 时应用一次；
-    // 此后用户手动切换/断线重连都不再覆盖用户当前的选择
+    // 此后用户手动切换/断线重连都不再覆盖用户当前的选择。
+    // 触屏设备的自动横竖屏（orientAuto）优先于面板默认视图，不再叠加覆盖。
     if (!viewApplied && location.pathname !== '/kb') {
       viewApplied = true;
-      if (m.default_view === 'kb') setView('kb');
+      if (m.default_view === 'kb' && !orientAuto) setView('kb');
     }
     // 不在此处开 RTC：sid 要等鉴权通过的 ok 才下发，ok 处理器里再开
   });
@@ -475,21 +479,124 @@
       document.title = 'WebDesk';
     }
     refreshInput();
+    applyDock();          // 视图切换后重判底栏停靠（键盘视图强制不停靠，#kb 归位）
   }
-  $('#btn-kbpage').addEventListener('click', () => setView('kb'));
-  $('#go-screen').addEventListener('click', (e) => { e.preventDefault(); setView('remote'); });
+  /* ---------- 横竖屏自动视图（手机）：竖屏→键盘，横屏→画面 ----------
+     仅主输入为触屏（pointer:coarse）的设备启用，桌面浏览器拉窗口不会误触发。
+     用户手动点「键盘模式/触屏模式」即接管，本次页面内旋转不再翻转（刷新恢复自动）。
+     病根与对策：matchMedia 的 orientation 反映的是「视口宽高比」而非物理姿态，
+     部分手机全屏期间转屏视口被锁不动，方向 change 事件被吞、状态比现实慢一拍
+     （表现为横屏却跳进键盘模式）。因此不信事件快照，一律现读 mqPortrait.matches，
+     并在退全屏、resize（防抖）后补同步，把被吞掉的那一拍追回来。 ---- */
+  const mqPortrait = window.matchMedia('(orientation: portrait)');
+  let orientAuto = window.matchMedia('(pointer: coarse)').matches && location.pathname !== '/kb';
+  function syncViewByOrientation() {
+    if (!orientAuto) return;                    // 手动接管后不再插手
+    setView(mqPortrait.matches ? 'kb' : 'remote');
+  }
+  if (orientAuto) {
+    mqPortrait.addEventListener('change', syncViewByOrientation);
+    // 全屏锁向会吞事件：退全屏瞬间视口才跳回物理姿态，延迟等布局稳定后补同步
+    document.addEventListener('fullscreenchange', () => setTimeout(syncViewByOrientation, 200));
+    let oriTimer = null;                        // 兜底：change 丢了靠 resize 追（方向没变时 setView 同向直入直出，无副作用）
+    window.addEventListener('resize', () => {
+      clearTimeout(oriTimer);
+      oriTimer = setTimeout(syncViewByOrientation, 300);
+    });
+  }
+  function manualView(v) {
+    orientAuto = false;     // 手动切换后旋转不再自动翻转（syncViewByOrientation 触发时现查此标记）
+    viewApplied = true;     // 顺带让面板默认视图也不再插手
+    setView(v);
+  }
+  $('#btn-kbpage').addEventListener('click', () => manualView('kb'));
+  $('#go-screen').addEventListener('click', (e) => { e.preventDefault(); manualView('remote'); });
 
-  $('#btn-full').addEventListener('click', async () => {
+  /* ---- 竖屏远程视图 · 底栏键盘停靠：把 #mrow + #kb 节点从键盘页搬进底部容器
+     （内容与键盘模式完全一致），画面按「视口 − 停靠高度」重排居中；
+     默认开启，手动关过（wd_kbdock='0'）才记住关闭；仅触屏设备竖屏生效 ---- */
+  const kbDock = $('#kbdock'), kbEl = $('#kb'), mrowEl = $('#mrow'), btnDock = $('#btn-kbdock');
+  const mqCoarse = window.matchMedia('(pointer: coarse)');
+  let dockPref = localStorage.getItem('wd_kbdock') !== '0';
+  function applyDock() {
+    const on = dockPref && mqCoarse.matches && mqPortrait.matches && view === 'remote';
+    kbDock.classList.toggle('hidden', !on);
+    if (on) {
+      if (kbEl.parentElement !== kbDock) {
+        kbDock.appendChild(mrowEl);            // 快捷行跟着键盘一起进停靠区（在上排）
+        kbDock.appendChild(kbEl);
+        Kb.reset();                            // 新挂上复位字母页
+      }
+    }
+    else if (kbEl.parentElement === kbDock) {  // 归还键盘页，两处不抢节点；mrow 回到 kb 上方原位
+      kbView.appendChild(kbEl);
+      kbView.insertBefore(mrowEl, kbEl);
+    }
+    dockH = on ? kbDock.offsetHeight : 0;
+    document.documentElement.style.setProperty('--dock-h', dockH + 'px');
+    document.body.classList.toggle('kb-docked', on);   // 样式钩子：竖屏开键盘时的控件微调
+    btnDock.classList.toggle('on', on);
+    fitCanvas();
+  }
+  btnDock.addEventListener('click', () => {
+    dockPref = !dockPref;
+    localStorage.setItem('wd_kbdock', dockPref ? '1' : '0');
+    applyDock();
+  });
+  window.addEventListener('resize', applyDock);
+  mqPortrait.addEventListener('change', applyDock);   // setView 同向不重入，这里兜底重排
+
+  /* ---- 触屏设备横屏默认全屏 ----
+     Fullscreen API 要求用户手势：进横屏先挂起标记并立即试一次（PWA standalone 等
+     场景可直接成功），失败则保留标记等下一次触摸静默补刀（iOS 不支持时永远失败
+     也不打扰）。补刀前现查方向：快速横→竖转回来的，绝不能在竖屏进全屏锁住视口。
+     用户手动退出全屏后，本次横屏内不再自动重开；转屏/重进横屏重新武装。 */
+  let fsPending = false;
+  function tryAutoFull() {
+    if (!fsPending || !mqCoarse.matches || mqPortrait.matches || document.fullscreenElement) return;
+    if (typeof document.documentElement.requestFullscreen !== 'function') {
+      fsPending = false;      // iOS Safari 网页无 Fullscreen API：直接解除武装，别每次都空抛异常
+      return;
+    }
+    document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => { fsPending = false; })
+      .catch(() => {});       // 失败保留 fsPending：手势授权下一次的 pointerdown 补刀
+  }
+  function evalAutoFull() {
+    fsPending = mqCoarse.matches && !mqPortrait.matches;
+    if (fsPending) tryAutoFull();
+  }
+  mqPortrait.addEventListener('change', evalAutoFull);
+  document.addEventListener('pointerdown', tryAutoFull, true);   // 捕获阶段：键盘页内的触摸同样生效
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) fsPending = false; });
+
+  /* ---- 全屏按钮：触屏模式(#btn-full)与键盘模式(#kb-full)共用一套逻辑与选中态。
+     竖屏两者都被媒体查询隐藏；进入全屏后按钮高亮并改文案为「退出全屏」，
+     同时提示：先退出全屏才能转动屏幕切换横竖屏（横竖屏自动视图依赖非全屏转屏）。 ---- */
+  const fullBtns = [$('#btn-full'), $('#kb-full')];
+  function syncFullBtn() {
+    const on = !!document.fullscreenElement;
+    for (const b of fullBtns) {
+      if (!b) continue;
+      b.classList.toggle('on', on);
+      b.textContent = t(on ? 'btn_full_exit' : 'btn_full');
+      b.title = t(on ? 'tip_full_exit' : 'tip_full');
+    }
+  }
+  async function toggleFull() {
     if (document.fullscreenElement) { document.exitFullscreen(); return; }
     try {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-      try { await screen.orientation.lock('landscape'); } catch {}
       toast(t('toast_fullscreen'));
     } catch {
       toast(t('toast_fullscreen_no'));
     }
-  });
-  document.addEventListener('fullscreenchange', () => setTimeout(fitCanvas, 120));
+  }
+  for (const b of fullBtns) if (b) b.addEventListener('click', toggleFull);
+  document.addEventListener('fullscreenchange', () => { syncFullBtn(); setTimeout(fitCanvas, 120); });
+  document.addEventListener('wd:lang', syncFullBtn);   // 切语言后 data-i18n 会覆盖文案，这里重新覆盖为当前全屏态文案
+  document.addEventListener('DOMContentLoaded', syncFullBtn);   // i18n 静态替换发生在 app.js 之后
+  syncFullBtn();
 
   /* ---------- 画面缩放按钮 ---------- */
   $('#zoom-in').addEventListener('click', () => setZoom(S.zoom * 1.3));
@@ -697,4 +804,7 @@
   Net.connect();
   fitCanvas();
   if (location.pathname === '/kb') setView('kb');   // /kb 深链：直接进键盘视图
+  else if (orientAuto && mqPortrait.matches) setView('kb');   // 竖屏手机打开即进键盘模式（横屏默认就是画面视图）
+  applyDock();                                        // 底栏键盘停靠：默认开，用户关过才保持关
+  evalAutoFull();                                     // 横屏打开页面：默认尝试全屏
 })();

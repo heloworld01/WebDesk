@@ -88,7 +88,8 @@
     },
 
     blocked: false,   // 输入总闸：true 时丢弃一切键鼠类消息（画面/配置照常）
-    INPUT_TYPES: new Set(['mmove', 'mrel', 'mdown', 'mup', 'click', 'wheel', 'key', 'combo', 'text', 'macro']),
+    INPUT_TYPES: new Set(['mmove', 'mrel', 'mdown', 'mup', 'click', 'wheel', 'key', 'combo', 'text',
+                          'macro', 'ime', 'caps_set']),
 
     // force=true 绕过输入闸（摇杆方向键模式：防误触屏蔽误触，但游戏方向键是有意的）
     send(obj, force) {

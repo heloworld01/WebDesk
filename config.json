@@ -3,6 +3,9 @@
   "port": 8898,
   "monitor": "primary",
   "fps": 30,
-  "quality": 60,
-  "scale": 0.6
+  "quality": 20,
+  "scale": 0.3,
+  "bitrate": 1000000,
+  "webrtc": false,
+  "default_view": "remote"
 }

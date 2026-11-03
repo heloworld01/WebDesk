@@ -117,30 +117,27 @@ class ScreenCapture:
                         self._raw = np.asarray(pil)
                         self._raw_seq += 1
 
-                scale = max(0.1, min(1.0, float(self.cfg.get("scale", 0.6))))
-                if scale < 1.0:
-                    pil = pil.resize(
-                        (max(1, round(pil.width * scale)), max(1, round(pil.height * scale))),
-                        Image.BILINEAR,
-                    )
-
-                # 同尺度全分辨率差分：画面无变化则跳过编码与发送
-                if prev_scaled is not None and scale == prev_scale \
-                        and ImageChops.difference(pil, prev_scaled).getbbox() is None:
-                    delay = 1.0 / max(1, int(self.cfg.get("fps", 15))) - (time.perf_counter() - t0)
-                    if delay > 0:
-                        time.sleep(delay)
-                    continue
-                prev_scaled = pil.copy()
-                prev_scale = scale
-                quality = max(10, min(95, int(self.cfg.get("quality", 60))))
-                buf = io.BytesIO()
-                pil.save(buf, "JPEG", quality=quality, optimize=False)
-                data = buf.getvalue()
-
                 with self._lock:
-                    self._latest = data
-                    self.seq += 1
+                    want_jpeg = self._jpeg_listeners > 0
+                if want_jpeg:
+                    scale = max(0.1, min(1.0, float(self.cfg.get("scale", 0.6))))
+                    if scale < 1.0:
+                        pil = pil.resize(
+                            (max(1, round(pil.width * scale)), max(1, round(pil.height * scale))),
+                            Image.BILINEAR,
+                        )
+
+                    # 同尺度全分辨率差分：画面无变化则跳过编码与发送
+                    if prev_scaled is None or scale != prev_scale \
+                            or ImageChops.difference(pil, prev_scaled).getbbox() is not None:
+                        prev_scaled = pil.copy()
+                        prev_scale = scale
+                        quality = max(10, min(95, int(self.cfg.get("quality", 60))))
+                        buf = io.BytesIO()
+                        pil.save(buf, "JPEG", quality=quality, optimize=False)
+                        with self._lock:
+                            self._latest = buf.getvalue()
+                            self.seq += 1
 
                 delay = 1.0 / max(1, int(self.cfg.get("fps", 15))) - (time.perf_counter() - t0)
                 if delay > 0:

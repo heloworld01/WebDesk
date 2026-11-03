@@ -33,6 +33,31 @@ def _k(name):
     return ALIASES.get(name, name)
 
 
+# VK_PACKET：Windows Unicode 按键包（scan=0xE7+字符码），逐字符注入全角标点/中文。
+# 不占剪贴板、不经远端输入法候选框，typewrite 打不了的字符走这条路。
+VK_TEXT_OK = False
+if sys.platform == "win32":
+    import ctypes
+
+    class _KEYBDINPUT(ctypes.Structure):
+        _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort),
+                    ("dwFlags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                    ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
+
+    class _INPUT(ctypes.Structure):
+        class _U(ctypes.Union):
+            _fields_ = [("ki", _KEYBDINPUT), ("padding", ctypes.c_byte * 32)]
+        _anonymous_ = ("u",)
+        _fields_ = [("type", ctypes.c_ulong), ("u", _U)]
+
+    def _vk_send(code, down):
+        inp = _INPUT(type=1)   # INPUT_KEYBOARD
+        inp.ki = _KEYBDINPUT(0, code, 0x0004 if down else (0x0004 | 0x0002), 0, None)
+        ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+
+    VK_TEXT_OK = True
+
+
 class InputController:
     def __init__(self):
         self.pos = [0, 0]
@@ -44,6 +69,32 @@ class InputController:
             self._pt = ctypes.wintypes.POINT()
             self._GetCursorPos = ctypes.windll.user32.GetCursorPos
             self._GetKeyState = ctypes.windll.user32.GetKeyState
+
+    def set_ime(self, cn):
+        """切换系统输入法语言：cn=True → 首个中文(zh-CN)键盘布局/输入法，
+        False → 英语(美国)键盘。广播 WM_INPUTLANGCHANGEREQUEST 跨进程请求切换，
+        对微软拼音/搜狗等 TSF 输入法有效。找不到目标布局返回 False（尽力而为，不回读）。"""
+        if self._GetKeyState is None:
+            return False
+        import ctypes
+        u = ctypes.windll.user32
+        langid = 0x0804 if cn else 0x0409       # 主语言：中文(中国) / 英语(美国)
+        n = u.GetKeyboardLayoutList(0, None)
+        if n <= 0:
+            return False
+        arr = (ctypes.c_ulong * n)()
+        u.GetKeyboardLayoutList(n, ctypes.byref(arr))
+        hkl = None
+        for h in arr:
+            lid = h & 0xFFFF
+            if (langid == 0x0804 and (lid & 0x3FF) == 0x04) or (langid == 0x0409 and lid == 0x0409):
+                hkl = h
+                break
+        if hkl is None:
+            return False
+        # HWND_BROADCAST=0xFFFF, WM_INPUTLANGCHANGEREQUEST=0x0050, lParam=目标布局
+        u.PostMessageW(0xFFFF, 0x0050, 0, hkl)
+        return True
 
     def get_caps(self):
         """远端 Caps Lock 是否点亮（VK_CAPITAL 切换状态低位）；非 Windows 返回 None。"""
@@ -143,11 +194,16 @@ class InputController:
         s = str(s)
         if not s:
             return
+        if VK_TEXT_OK:
+            # 全角标点/中文走 VK_PACKET（BMP 内逐字符；增补平面字符跳过）
+            for ch in s:
+                code = ord(ch)
+                if 0 < code <= 0xFFFF:
+                    _vk_send(code, True)
+                    _vk_send(code, False)
+            return
         try:
-            if USE_PDI:
-                pydirectinput.typewrite(s, interval=0.005)
-            else:
-                pyautogui.typewrite(s, interval=0.005)
+            pyautogui.typewrite(s, interval=0.005)
         except Exception:
             pass
 

@@ -11,15 +11,41 @@
     { id: 'b2', type: 'button', label: t('w_right'), x: 0.88, y: 0.72, act: { t: 'mouse', btn: 'right' } },
     { id: 'b3', type: 'button', label: t('w_dbl'), x: 0.88, y: 0.89, act: { t: 'mouse', btn: 'left', dbl: true } },
   ];
-  // 竖屏：视口窄，x 百分比压缩进右边缘窄带，默认按钮列抬高避开右下角缩放条（放大/缩小/还原）
+  // 竖屏：视口窄，x 百分比压缩进右边缘窄带；缩放条已移到右上角，按钮列直接
+  // 落右下方（与横屏同列）；键盘停靠时 #controls 底部收缩，%坐标自动整体上移
   const DEFAULT_PORT = [
     { id: 's1', type: 'stick', kind: 'mouse', x: 0.16, y: 0.68, size: 120, speed: 24,
       keys: { up: 'up', down: 'down', left: 'left', right: 'right' } },
-    { id: 'b1', type: 'button', label: t('w_left'), x: 0.88, y: 0.36, act: { t: 'mouse', btn: 'left' } },
-    { id: 'b2', type: 'button', label: t('w_right'), x: 0.88, y: 0.50, act: { t: 'mouse', btn: 'right' } },
-    { id: 'b3', type: 'button', label: t('w_dbl'), x: 0.88, y: 0.64, act: { t: 'mouse', btn: 'left', dbl: true } },
+    { id: 'b1', type: 'button', label: t('w_left'), x: 0.88, y: 0.55, act: { t: 'mouse', btn: 'left' } },
+    { id: 'b2', type: 'button', label: t('w_right'), x: 0.88, y: 0.72, act: { t: 'mouse', btn: 'right' } },
+    { id: 'b3', type: 'button', label: t('w_dbl'), x: 0.88, y: 0.89, act: { t: 'mouse', btn: 'left', dbl: true } },
   ];
   const DEFAULTS = { landscape: DEFAULT_LAND, portrait: DEFAULT_PORT };
+  // 预设件默认位（v2 迁移用）：左键/右键/双击默认右下柱列，两方向一致
+  const PRESET_POS = {
+    landscape: { b1: [0.88, 0.55], b2: [0.88, 0.72], b3: [0.88, 0.89] },
+    portrait: { b1: [0.88, 0.55], b2: [0.88, 0.72], b3: [0.88, 0.89] },
+  };
+  // 一次性迁移 v2：把预设按钮 b1..b3 钉到新的“右下方”默认位（横竖各改各的），
+  // 用户自加控件与摇杆位置不动。旧数据里按钮为避开底部缩放条被排在中部，
+  // 缩放条移去右上角后不再需要那套避让
+  const LS_VER = 'wd_layoutv2';        // 本地数据迁移标记
+  const LS_VER_SRV = 'wd_layoutv2srv'; // 服务端下发数据迁移标记（首连单独走一次）
+  function reseedPresets(n) {
+    for (const ori of ['landscape', 'portrait']) {
+      const pos = PRESET_POS[ori];
+      for (const w of (n[ori] || [])) {
+        const p = pos[w.id];
+        if (p) { w.x = p[0]; w.y = p[1]; }
+      }
+    }
+  }
+  function migrateV2(n) {
+    try { if (localStorage.getItem(LS_VER)) return n; localStorage.setItem(LS_VER, '1'); }
+    catch (e) { return n; }
+    reseedPresets(n);
+    return n;
+  }
 
   // 旧版本预设按钮（Esc/Space/Ctrl+C/Alt+Tab）一次性清除
   const LEGACY_IDS = new Set(['b4', 'b5', 'b6', 'b7']);
@@ -41,9 +67,9 @@
   function loadLayouts() {
     try {
       const n = normLayouts(JSON.parse(localStorage.getItem(LS_LAYOUT)), false);
-      if (n) return n;
+      if (n) return migrateV2(n);
     } catch {}
-    return JSON.parse(JSON.stringify(DEFAULTS));
+    return migrateV2(JSON.parse(JSON.stringify(DEFAULTS)));
   }
 
   const Widgets = {
@@ -81,14 +107,25 @@
       if (this.onChange) this.onChange();
     },
 
-    // 应用服务端下发的布局（连接时）。与本地一致则跳过，避免无谓重绘/回推
+    // 应用服务端下发的布局（连接时）。与本地一致则跳过，避免无谓重绘/回推。
+    // 迁移必须在比较前做：服务端可能还存着 v1 时代“按钮挤在中部”的旧坐标，
+    // 若不在这里同样 reseed，旧数据会立刻覆盖掉本地刚迁移好的右下方默认位
     applyServerLayout(incoming) {
-      const n = normLayouts(incoming, false);
+      let n = normLayouts(incoming, false);
       if (!n) return;
-      if (JSON.stringify(n) === JSON.stringify(this.layouts)) return;
+      let reseeded = false;
+      try {
+        if (!localStorage.getItem(LS_VER_SRV)) {   // 升级后首连：服务端还是 v1 旧坐标，
+          localStorage.setItem(LS_VER_SRV, '1');   // 同样把预设按钮挪到右下方默认位，
+          reseedPresets(n);                        // 并回写一次，让所有设备收敛
+          reseeded = true;
+        }
+      } catch (e) { /* 隐私模式禁 storage：照旧采用服务端数据 */ }
+      if (!reseeded && JSON.stringify(n) === JSON.stringify(this.layouts)) return;
       this.layouts = n;
-      localStorage.setItem(LS_LAYOUT, JSON.stringify(n));   // 只写缓存，不回推
+      localStorage.setItem(LS_LAYOUT, JSON.stringify(n));
       this.render();
+      if (reseeded) this.save();     // 仅迁移这一次回推；平时保持“只写缓存，不回推”
     },
 
     setEditing(on) {
@@ -122,6 +159,7 @@
       this._nodes.clear();
       for (const w of this.layout) {
         const el = w.type === 'stick' ? this._makeStick(w) : this._makeButton(w);
+        el.dataset.wid = w.id;   // CSS 按预设 id 定点微调（如竖屏开键盘时挪摇杆/藏按钮）
         this.layer.appendChild(el);
         this._nodes.set(w.id, el);
         if (this.editing) this._makeDraggable(el, w);
@@ -129,9 +167,9 @@
       if (!this.editing) requestAnimationFrame(() => this._avoidZoombar());
     },
 
-    // 右下角避让：缩放条（放大/缩小/还原）钉死在右下角，竖屏窄视口下右边缘
-    // 控件（x≈0.88 的按钮列）会被压进同一条窄带、与缩放条叠压。渲染后实测相交，
-    // 把控件沿最短方向推出缩放条，并把新位置存进当前方向的布局，一次修正永久生效。
+    // 缩放条避让：缩放条（放大/缩小/还原）钉死在右上角，右边缘控件（x≈0.88 的
+    // 按钮列、或用户拖到右上角的任意控件）可能与它叠压。渲染后实测相交，把控件
+    // 沿最短方向（左/下）推出缩放条，并把新位置存进当前方向的布局，一次修正永久生效。
     _avoidZoombar() {
       const zb = document.getElementById('zoombar');
       if (!zb || zb.offsetParent === null || this.editing) return;
@@ -145,9 +183,9 @@
         if (r.right <= z.left || r.left >= z.right || r.bottom <= z.top || r.top >= z.bottom) continue;
         const w = this.layout.find(x => x.id === id);
         if (!w) continue;
-        const overL = r.right - z.left, overT = r.bottom - z.top;   // 右下角无处往右/下推：只往左、上让
-        if (overL <= overT) w.x = Math.max(0.04, w.x - (overL + 8) / W);
-        else w.y = Math.max(0.06, w.y - (overT + 8) / H);
+        const overL = r.right - z.left, overB = z.bottom - r.top;   // 缩放条已移右上角：只往左、下让
+        if (overL <= overB) w.x = Math.max(0.04, w.x - (overL + 8) / W);
+        else w.y = Math.min(0.94, w.y + (overB + 8) / H);
         el.style.left = (w.x * 100) + '%';
         el.style.top = (w.y * 100) + '%';
         moved = true;
@@ -226,8 +264,13 @@
       const badge = document.createElement('div');
       badge.className = 'stick-mode';
       badge.textContent = t('stick_switch');
-      badge.addEventListener('pointerdown', (e) => {
+      // 兜底：个别浏览器/触控组合下触摸只派发 click 不派发 pointerdown。
+      // 一次真实点按两路都会到 ⇒ 用时间戳去抖，400ms 内的第二次触发忽略
+      let lastFlip = 0;
+      const flipMode = (e) => {
         e.preventDefault(); e.stopPropagation();
+        if (performance.now() - lastFlip < 400) return;
+        lastFlip = performance.now();
         w.kind = (w.kind === 'keys') ? 'mouse' : 'keys';
         syncMode();
         this.save();
@@ -235,7 +278,9 @@
         const blocked = window.Net && window.Net.blocked;
         if (blocked && window.toast)
           window.toast(w.kind === 'keys' ? t('toast_stick_keys') : t('toast_stick_mouse'));
-      });
+      };
+      badge.addEventListener('pointerdown', flipMode);
+      badge.addEventListener('click', flipMode);
       el.appendChild(badge);
       if (!this.editing) this._bindStickAction(el, w);
       return el;
@@ -252,6 +297,23 @@
         knob.style.transform = 'translate(calc(-50% + ' + (vx * R() * 0.72) + 'px), calc(-50% + ' + (vy * R() * 0.72) + 'px))';
       };
 
+      // 长按自动重复：注入的 keydown 不享受 Windows 实体键盘的按住连发
+      // （系统 auto-repeat 只由真实扫描码驱动），长拉摇杆必须客户端补发。
+      // 节奏仿系统键盘：按住 450ms 后开始，每 90ms 一次「抬起+按下」——
+      // 用完整按压沿而非裸重复 down，游戏/菜单/文本光标各类目标都能识别。
+      const RPT_DELAY = 450, RPT_INT = 90;
+      const rptAt = {};                        // key → 下次补发时刻
+      const repeatTick = () => {
+        if (!keysDown.size) return;
+        const now = performance.now();
+        for (const k of keysDown) {
+          if (rptAt[k] > now) continue;
+          rptAt[k] = now + RPT_INT;
+          Net.send({ t: 'key', key: k, d: 'up' }, true);
+          Net.send({ t: 'key', key: k, d: 'down' }, true);
+        }
+      };
+
       const updateKeys = () => {
         const keys = w.keys || {};
         const want = new Set();
@@ -259,13 +321,19 @@
         if (vx > 0.5 && keys.right) want.add(keys.right);
         if (vy < -0.5 && keys.up) want.add(keys.up);
         if (vy > 0.5 && keys.down) want.add(keys.down);
+        const now = performance.now();
         // force=true：方向键是玩家有意的游戏输入，防误触(挡误触)不应拦截
-        for (const k of keysDown) if (!want.has(k)) { Net.send({ t: 'key', key: k, d: 'up' }, true); keysDown.delete(k); }
-        for (const k of want) if (!keysDown.has(k)) { Net.send({ t: 'key', key: k, d: 'down' }, true); keysDown.add(k); }
+        for (const k of keysDown)
+          if (!want.has(k)) { Net.send({ t: 'key', key: k, d: 'up' }, true); keysDown.delete(k); delete rptAt[k]; }
+        for (const k of want)
+          if (!keysDown.has(k)) {
+            Net.send({ t: 'key', key: k, d: 'down' }, true); keysDown.add(k);
+            rptAt[k] = now + RPT_DELAY;
+          }
       };
 
       const loop = () => {
-        if (w.kind === 'keys') { updateKeys(); return; }
+        if (w.kind === 'keys') { updateKeys(); repeatTick(); return; }
         // 鼠标模式：相对移动，speed = 每秒最大像素；除以画面缩放倍数保持与画面上所见一致
         const sp = (w.speed || 14) * 60 / 15 * 0.25 * (window.WD_REL || 1);
         if (Math.hypot(vx, vy) > DEAD) {
@@ -297,11 +365,15 @@
         clearInterval(timer); timer = null;
         for (const k of keysDown) Net.send({ t: 'key', key: k, d: 'up' }, true);
         keysDown.clear();
+        for (const k of Object.keys(rptAt)) delete rptAt[k];   // 松开即停连发
       };
-      el.addEventListener('pointerdown', start);
-      el.addEventListener('pointermove', move);
-      el.addEventListener('pointerup', end);
-      el.addEventListener('pointercancel', end);
+      // 角标(切换模式)是摇杆的子节点：它的 pointerdown 会冒泡到这里启动摇杆，
+      // 把一次“点角标”误判成“拉摇杆”并发出方向键。按事件目标剔除，角标只管切换。
+      const fromBadge = (e) => e.target && e.target.closest && e.target.closest('.stick-mode');
+      el.addEventListener('pointerdown', (e) => { if (!fromBadge(e)) start(e); });
+      el.addEventListener('pointermove', (e) => { if (!fromBadge(e)) move(e); });
+      el.addEventListener('pointerup', (e) => { if (!fromBadge(e)) end(e); });
+      el.addEventListener('pointercancel', (e) => { if (!fromBadge(e)) end(e); });
       el.addEventListener('contextmenu', e => e.preventDefault());
     },
 
@@ -317,8 +389,9 @@
       });
       el.addEventListener('pointermove', (e) => {
         if (e.pointerId !== pid) return;
-        const dx = (e.clientX - sx) / window.innerWidth;
-        const dy = (e.clientY - sy) / window.innerHeight;
+        // 用控件层实际尺寸换算：键盘停靠时层底部收缩，%坐标必须按层高校准
+        const dx = (e.clientX - sx) / (this.layer.clientWidth || window.innerWidth);
+        const dy = (e.clientY - sy) / (this.layer.clientHeight || window.innerHeight);
         if (Math.abs(dx) + Math.abs(dy) > 0.01) moved = true;
         w.x = Math.min(1, Math.max(0, ox + dx));
         w.y = Math.min(1, Math.max(0, oy + dy));

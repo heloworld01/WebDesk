@@ -15,7 +15,9 @@
   服务端 -> 客户端:
     {t:"hello",w,h,need_auth}            连接后首条消息（桌面尺寸）
     {t:"cur",x,y}                        真实光标位置（~8Hz，仅移动时）
-    {t:"caps",on}                        远端 Caps Lock 状态变化时推送
+    {t:"caps_set",on}                    绝对设置 Caps 灯态（当前≠目标才敲一次），随后回显真实值
+    {t:"ime",cn}                         切换系统输入法语言：cn=true 中文输入法 / false 英文键盘
+    {t:"caps",on}                        远端 Caps Lock 灯变化时推送；含 Caps 的注入后必强制回显一次
     {t:"ok"} {t:"err",msg}
 """
 import asyncio
@@ -218,6 +220,8 @@ def run_msg(m):
         inputc.text(m.get("s", ""))
     elif t == "macro":
         inputc.macro(m.get("steps", []))
+    elif t == "ime":
+        inputc.set_ime(bool(m.get("cn")))
     elif t == "cfg":
         capture.set(
             **{k: m[k] for k in ("fps", "quality", "scale") if k in m}
@@ -230,7 +234,6 @@ async def stream_frames(ws: WebSocket, state: dict):
     纯 WebRTC 时不登记，无任何消费者时抓屏线程整体休眠（零连接≈零 CPU）。"""
     last = -1
     last_cur = None
-    last_caps = None                  # 远端 Caps Lock 状态（None=尚未发送过初始值）
     t_cur = 0.0
     t_ping = 0.0
     watching = False                      # 当前是否已登记 jpeg 消费者
@@ -264,10 +267,11 @@ async def stream_frames(ws: WebSocket, state: dict):
                         except Exception:
                             return
                     # Caps Lock 同步：远端灯变化才推一条（首次鉴权即发初始值），
-                    # 键盘页据此点亮 Caps 键并切换字母大小写显示
+                    # 键盘页据此点亮 Caps 键并切换字母大小写显示。
+                    # 注入过 Caps 的消息另有强制回显（见 ws_endpoint），双保险收敛
                     caps = inputc.get_caps()
-                    if caps is not None and caps != last_caps:
-                        last_caps = caps
+                    if caps is not None and caps != state.get("last_caps"):
+                        state["last_caps"] = caps
                         try:
                             await ws.send_json({"t": "caps", "on": caps})
                         except Exception:
@@ -289,6 +293,21 @@ async def stream_frames(ws: WebSocket, state: dict):
             capture.remove_jpeg_listener()
 
 
+def _touches_caps(m):
+    """消息是否可能翻转远端 Caps（key/combo/macro 里含 capslock）"""
+    if str(m.get("key", "")).lower() == "capslock":
+        return True
+    ks = m.get("keys")
+    if isinstance(ks, list) and any(str(x).lower() == "capslock" for x in ks):
+        return True
+    st = m.get("steps")
+    if isinstance(st, list):
+        for s in st:
+            if isinstance(s, dict) and str(s.get("k", "")).lower() == "capslock":
+                return True
+    return False
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
@@ -304,7 +323,7 @@ async def ws_endpoint(ws: WebSocket):
     # 验证码永远存在（固定 PIN 或随机 6 位）：所有连接都必须先过鉴权。
     # 注意：sid 不在 hello 里下发——否则未鉴权的页面可拿 sid 直接走 /rtc/offer
     # 拉视频流绕过验证码；鉴权通过后才随 ok 下发。
-    state = {"auth": False, "video_mode": "jpeg"}
+    state = {"auth": False, "video_mode": "jpeg", "last_caps": None}
     w, h = capture.size
     # default_view 每次现读 config.json：面板改完无需重启，下一个新连接即生效
     await ws.send_json({"t": "hello", "w": w, "h": h,
@@ -349,6 +368,24 @@ async def ws_endpoint(ws: WebSocket):
                 continue
             if not state["auth"]:
                 continue
+            if t == "caps_set":
+                # 绝对态设置（区别于相对 tap）：灯已等于目标就不动。同机测试时实体
+                # Caps 键的 OS 级翻转 + 前端转发不会二次取反；注入被吞时回显也能纠偏
+                want = bool(m.get("on"))
+                cur = inputc.get_caps()
+                if cur is not None and cur != want:
+                    def _tap_caps():
+                        inputc.tap_key("capslock")
+                        time.sleep(0.03)
+                        return inputc.get_caps()
+                    cur = await asyncio.get_running_loop().run_in_executor(None, _tap_caps)
+                if cur is not None:
+                    state["last_caps"] = cur
+                    try:
+                        await ws.send_json({"t": "caps", "on": cur})
+                    except Exception:
+                        pass
+                continue
             if t == "stream":
                 state["video_mode"] = m.get("mode", "jpeg")
                 continue
@@ -360,6 +397,16 @@ async def ws_endpoint(ws: WebSocket):
                 await asyncio.get_running_loop().run_in_executor(None, run_msg, m)
             except Exception as e:
                 await ws.send_json({"t": "err", "msg": f"{type(e).__name__}: {e}"})
+            # Caps 相关注入后强制回显一次真实灯态：若注入被吞（提权窗口/游戏反作弊
+            # 等），键盘页也能凭回显退回真实值，乐观态不会永久翻转成“不联动”
+            if _touches_caps(m):
+                caps = inputc.get_caps()
+                if caps is not None:
+                    state["last_caps"] = caps
+                    try:
+                        await ws.send_json({"t": "caps", "on": caps})
+                    except Exception:
+                        pass
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

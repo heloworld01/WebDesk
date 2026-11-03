@@ -144,6 +144,12 @@ class RtcHub:
         self._ids = itertools.count(1)
 
     async def handle_offer(self, request: Request):
+        # 面板「启用 WebRTC」关闭：视频与系统音频通道整体禁用（CONFIG 为启动快照，
+        # 勾选变化按面板提示重启服务后生效）。客户端收到 code 会翻译成当前语言。
+        if not self.config.get("webrtc", True):
+            return JSONResponse({"code": "webrtc_off",
+                                 "error": "WebRTC 已关闭：请在控制面板勾选「启用 WebRTC」并重启服务"},
+                                status_code=403)
         # 单连接闸门：sid 不属于当前会话则拒绝（防第二个设备绕过 WS 直接拉流/音频）
         if self.gate is not None:
             sid = request.query_params.get("sid", "")

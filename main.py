@@ -326,8 +326,12 @@ async def ws_endpoint(ws: WebSocket):
     state = {"auth": False, "video_mode": "jpeg", "last_caps": None}
     w, h = capture.size
     # default_view 每次现读 config.json：面板改完无需重启，下一个新连接即生效
+    # WEBRTC_OK=服务端 aiortc 可用，config 关=用户主动只用 JPEG（CONFIG 为启动快照，
+    # 勾选变化按面板提示重启服务生效，/rtc/offer 侧同步拒收）。此前该配置从未被消费
+    # （勾选是摆设，2026-11-03 排查发现），现接入 hello 下发——客户端据 webrtc 位决定是否发 offer。
     await ws.send_json({"t": "hello", "w": w, "h": h,
-                        "need_auth": True, "webrtc": WEBRTC_OK,
+                        "need_auth": True,
+                        "webrtc": WEBRTC_OK and bool(CONFIG.get("webrtc", True)),
                         "default_view": str(load_config().get("default_view", "remote"))})
 
     async def push_layout():

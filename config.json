@@ -6,6 +6,6 @@
   "quality": 20,
   "scale": 0.3,
   "bitrate": 1000000,
-  "webrtc": false,
+  "webrtc": true,
   "default_view": "remote"
 }
